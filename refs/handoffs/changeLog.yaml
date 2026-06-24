@@ -1,0 +1,10 @@
+version: 1
+schema: refs/schemas/schemaRegistry.yaml
+updated: 2026-06-24
+changes:
+  - date: 2026-06-24
+    summary: Initialized Agent-Academy refs harness and added updated PRD decisions.
+    refs:
+      - docs/prd/worldbuilder-map-generator-prd.md
+      - refs/planning/decisions.yaml
+      - refs/architecture/overview.md

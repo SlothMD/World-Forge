@@ -1,0 +1,15 @@
+version: 1
+schema: refs/schemas/schemaRegistry.yaml
+updated: 2026-06-24
+tokens:
+  colors:
+    guidance:
+      - Define palette tokens separately from biome classification.
+      - Keep terrain, water, ice, river, and overlay colors configurable by theme.
+      - Use semantic status tokens for validation, warning, selected, disabled, and focus states.
+  spacing:
+    guidance:
+      - Prefer compact spacing tokens suitable for desktop-first tool density with mobile-safe targets where applicable.
+  typography:
+    guidance:
+      - Keep map/tool UI text legible without turning panels into large decorative blocks.

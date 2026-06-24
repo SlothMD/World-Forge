@@ -1,0 +1,38 @@
+version: 1
+schema: refs/schemas/schemaRegistry.yaml
+updated: 2026-06-24
+identity:
+  name: World Forge
+  repository_url: local workspace; remote not configured
+  summary: Local-first procedural world map generator for tabletop RPG worldbuilding, with clean structured data for future playable map exports.
+  current_phase: MVP planning and harness initialization
+thesis:
+  core_promise: Generate attractive, plausible, reproducible planet-scale maps whose data can later be resampled into VTT, tile, hex, engine, and game-specific formats.
+audience:
+  primary_users:
+    - Tabletop RPG game masters
+    - Writers and setting designers
+    - Game designers and technical creators
+stack:
+  summary: TypeScript-first generation core separated from UI, with a future Tauri desktop shell and optional Rust modules only if performance requires them.
+repository_layout:
+  source_roots:
+    - packages/generator-core
+    - packages/renderer
+    - packages/exporters
+    - packages/shared
+    - apps/desktop
+  docs_roots:
+    - docs/prd
+    - refs
+source_of_truth:
+  planning: refs/planning
+  architecture: refs/architecture
+  product: refs/product
+  implementation: refs/implementation
+  handoffs: refs/handoffs
+  testing: refs/testing
+  ui: refs/UI
+known_open_questions:
+  - Final product name and file extension are unresolved; use World Forge and .wforge as working placeholders.
+  - Detailed moon tide and climate modeling is post-MVP, but MVP must preserve an architecture path for it.

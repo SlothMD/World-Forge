@@ -1,0 +1,33 @@
+version: 1
+schema: refs/schemas/schemaRegistry.yaml
+updated: 2026-06-24
+milestones:
+  - id: slice-0
+    status: planned
+    target: technical proof of concept
+    summary: Deterministic generation and basic rendering/export path.
+    exit_criteria:
+      - Same seed produces same rough map.
+      - World wraps horizontally.
+      - PNG and JSON export work.
+  - id: slice-1
+    status: planned
+    target: planet foundation
+    summary: Plausible planet-scale terrain foundation.
+    exit_criteria:
+      - Continents and mountain ranges look intentional.
+      - Project can be saved and reopened.
+  - id: slice-2
+    status: planned
+    target: climate and hydrology
+    summary: Natural-feeling climate, rivers, ice, and biome placement.
+    exit_criteria:
+      - Biomes follow climate rules.
+      - Rivers flow downhill.
+      - Ice and deserts appear plausibly.
+  - id: slice-3
+    status: planned
+    target: export-ready MVP
+    summary: Usable local-first app with required exports and project packages.
+    exit_criteria:
+      - User can generate, review, save, reopen, and export a usable world.

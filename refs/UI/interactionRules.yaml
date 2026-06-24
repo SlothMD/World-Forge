@@ -1,0 +1,14 @@
+version: 1
+schema: refs/schemas/schemaRegistry.yaml
+updated: 2026-06-24
+interaction_rules:
+  - id: single-action-clicks
+    summary: One click should select, inspect, confirm, or cancel; avoid mixed-action controls.
+  - id: regeneration-clarity
+    summary: Regeneration must clearly distinguish same seed with changed settings from new seed.
+  - id: range-validation
+    summary: Invalid ranges must be blocked or corrected with readable inline messages.
+  - id: escape-behavior
+    summary: Esc closes a blocking modal; otherwise it opens the app/menu surface appropriate to the screen.
+  - id: confirmation-friction
+    summary: Reversible actions need low friction; destructive overwrite/export choices need clear confirmation.

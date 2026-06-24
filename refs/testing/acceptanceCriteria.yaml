@@ -1,0 +1,19 @@
+version: 1
+schema: refs/schemas/schemaRegistry.yaml
+updated: 2026-06-24
+criteria:
+  - id: deterministic-seed
+    status: draft
+    summary: Same seed and same config produce the same world data.
+  - id: plausible-natural-map
+    status: draft
+    summary: Generated maps include continents, oceans, plate-influenced mountains, rivers, climate-driven biomes, and ice.
+  - id: ocean-tolerance
+    status: draft
+    summary: Ocean percentage defaults to target +/- 5 percentage points.
+  - id: project-save-load
+    status: draft
+    summary: .wforge save/reopen preserves seed, config, selected values, solar system, world, layers, and export metadata.
+  - id: required-exports
+    status: draft
+    summary: PNG, simplified SVG, and JSON exports complete locally without cloud services.

@@ -1,0 +1,18 @@
+version: 1
+schema: refs/schemas/schemaRegistry.yaml
+updated: 2026-06-24
+stack:
+  languages:
+    - TypeScript
+    - Rust optional post-profiling
+  frameworks:
+    - Tauri planned for desktop shell
+    - React, Svelte, or Vue undecided for frontend
+  runtimes:
+    - Node.js for tooling and tests
+  package_managers: []
+  databases: []
+  deployment_targets:
+    - local desktop app
+    - future CLI/dev tooling
+    - future hosted or game-specific frontends

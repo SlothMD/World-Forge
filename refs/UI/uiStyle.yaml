@@ -1,0 +1,10 @@
+version: 1
+schema: refs/schemas/schemaRegistry.yaml
+updated: 2026-06-24
+principles:
+  - Use compact, information-dense layouts that prioritize current action space.
+  - Keep controls clear and stable; avoid decorative chrome that buries map state.
+  - Use one polished clean game-map palette for MVP while keeping palettes configurable.
+  - Do not expose internal labels such as debug or prototype in normal user surfaces.
+  - Map view should claim the available viewport and avoid empty unstyled space.
+  - Use hover, focus, and inspect states for secondary detail instead of persistent map labels.

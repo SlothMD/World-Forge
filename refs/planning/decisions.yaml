@@ -1,0 +1,61 @@
+version: 1
+schema: refs/schemas/schemaRegistry.yaml
+updated: 2026-06-24
+decisions:
+  - id: mvp-internal-map-model
+    status: accepted
+    date: 2026-06-24
+    decision: Use a wrapped equirectangular grid for MVP through projection-neutral world-coordinate helpers.
+    rationale: This keeps MVP implementation practical while preserving future resampling paths for spherical, hex, square tile, Civ-like, VTT, Godot, Tiled, and regional map outputs.
+    consequences:
+      - Generation modules must use coordinate and neighbor abstractions rather than raw image pixels.
+      - Polar distortion is acceptable in MVP if documented.
+      - A future geodesic or spherical backing model must not require UI or exporter rewrites.
+  - id: mvp-resolution
+    status: accepted
+    date: 2026-06-24
+    decision: Default MVP world resolution is 2048x1024, with lower test and development resolutions.
+    rationale: This balances visible map quality, performance, and manageable layer storage.
+    consequences:
+      - Golden seed tests may use smaller deterministic fixtures.
+      - Export and project package code must not hardcode only one resolution.
+  - id: mvp-project-package
+    status: accepted
+    date: 2026-06-24
+    decision: Save projects as a zipped package using the working .wforge extension.
+    rationale: Large map layers will outgrow convenient single-file JSON, but JSON export remains required for downstream tools.
+    consequences:
+      - Project packages should contain manifest JSON, schema version, layer files, and export metadata.
+      - The final product name and extension can change before release.
+  - id: mvp-stack
+    status: accepted
+    date: 2026-06-24
+    decision: Build TypeScript-first with strict separation between logic and UI; add Rust only later if performance requires it.
+    rationale: TypeScript supports fast iteration across generator, schema, renderer, and desktop UI while keeping multiple frontends open.
+    consequences:
+      - Core packages must not depend on React, Svelte, Vue, Tauri windows, or browser UI state.
+      - Public APIs should be usable by CLI, tests, desktop UI, and future hosted or game-specific frontends.
+  - id: mvp-theme-scope
+    status: accepted
+    date: 2026-06-24
+    decision: Ship one clean game-map palette in MVP while architecting renderer palettes/themes as configurable data.
+    rationale: Visual polish matters, but multiple production themes are not needed for MVP.
+    consequences:
+      - Renderer should avoid hardcoded color constants scattered through generation logic.
+      - Theme UI is post-MVP.
+  - id: mvp-moons
+    status: accepted
+    date: 2026-06-24
+    decision: Moons affect tide and climate plausibility in MVP through simple generated influence values.
+    rationale: The product should default toward plausible world generation without implementing full orbital mechanics in MVP.
+    consequences:
+      - Solar system generation must produce moon data before climate/hydrology.
+      - MVP influence can be scalar and modest, but data fields must allow richer modeling later.
+  - id: defer-natural-resources
+    status: accepted
+    date: 2026-06-24
+    decision: Defer natural resources from MVP.
+    rationale: Resources are game-specific and configurable, so including them early would pull the MVP toward gameplay balance and rulesets.
+    consequences:
+      - Data architecture should allow future resource layers.
+      - MVP generation, acceptance tests, and UI should not depend on resource placement.

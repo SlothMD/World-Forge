@@ -1,0 +1,28 @@
+version: 1
+schema: refs/schemas/schemaRegistry.yaml
+updated: 2026-06-24
+schemas:
+  generation-config:
+    status: draft
+    purpose: Seed, parameter ranges, selected generated values, output resolution, projection, and wrap mode for deterministic world generation.
+    fields:
+      - seed
+      - parameter_ranges
+      - selected_values
+      - generation_profile
+      - output_resolution
+      - projection
+      - wrap_mode
+  project-package-manifest:
+    status: draft
+    purpose: Manifest for .wforge zipped project packages.
+    fields:
+      - app_version
+      - generator_version
+      - schema_version
+      - seed
+      - config
+      - solar_system
+      - primary_world
+      - layer_manifest
+      - export_metadata

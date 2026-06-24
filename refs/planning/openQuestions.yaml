@@ -1,0 +1,13 @@
+version: 1
+schema: refs/schemas/schemaRegistry.yaml
+updated: 2026-06-24
+open_questions:
+  - id: final-product-name
+    status: open
+    question: Final product name and file extension are unresolved; World Forge and .wforge are working placeholders.
+  - id: detailed-moon-model
+    status: deferred
+    question: MVP uses simple moon tide/climate influence values, with detailed orbital/tidal modeling deferred.
+  - id: resource-layer-design
+    status: deferred
+    question: Natural resource generation is post-MVP and must be game-specific/configurable rather than baked into core MVP maps.

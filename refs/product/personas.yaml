@@ -1,0 +1,23 @@
+version: 1
+schema: refs/schemas/schemaRegistry.yaml
+updated: 2026-06-24
+personas:
+  - id: tabletop-gm
+    summary: Game master planning or running a campaign.
+    needs:
+      - Generate a believable world quickly.
+      - Export an attractive planning map.
+      - Save and regenerate worlds by seed.
+      - Adjust broad parameters without needing geophysics expertise.
+  - id: writer-setting-designer
+    summary: Writer or setting designer using plausible geography as a foundation.
+    needs:
+      - Preserve reproducible versions.
+      - Use geography for cultures, trade routes, histories, and stories later.
+      - Export structured data for future tooling.
+  - id: game-designer
+    summary: Technical creator who may reuse the generator for playable map formats.
+    needs:
+      - Clean JSON and stable schemas.
+      - Core generation APIs independent of UI.
+      - Future tile, hex, engine, and game-specific exports.

@@ -1,0 +1,12 @@
+version: 1
+schema: refs/schemas/schemaRegistry.yaml
+updated: 2026-06-24
+accessibility:
+  principles:
+    - Primary controls must be keyboard accessible.
+    - Focus states must be visible.
+    - Sliders must have numeric input alternatives.
+    - Map layer status must not rely on color alone.
+    - Hover-only content must also be reachable by focus or tap.
+    - Export functions must be available without drag-and-drop.
+  status: draft

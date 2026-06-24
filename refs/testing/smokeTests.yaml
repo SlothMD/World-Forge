@@ -1,0 +1,19 @@
+version: 1
+schema: refs/schemas/schemaRegistry.yaml
+updated: 2026-06-24
+smoke_tests:
+  - id: generate-default-export
+    status: draft
+    summary: Generate a default world and export required formats.
+    steps:
+      - Generate with default ranges.
+      - Verify seed and selected values are visible.
+      - Export PNG, simplified SVG, and JSON.
+  - id: save-reopen
+    status: draft
+    summary: Save and reopen a .wforge project.
+    steps:
+      - Generate a world.
+      - Save project package.
+      - Reopen package.
+      - Verify seed, config, selected values, and layer metadata match.

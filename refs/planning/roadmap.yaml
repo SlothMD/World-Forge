@@ -1,0 +1,24 @@
+version: 1
+schema: refs/schemas/schemaRegistry.yaml
+updated: 2026-06-24
+roadmap:
+  - id: slice-0-technical-proof
+    horizon: now
+    status: planned
+    summary: Deterministic seeded generation, wrapped sample grid, basic elevation, land/water split, PNG export, and JSON config export.
+  - id: slice-1-planet-foundation
+    horizon: next
+    status: planned
+    summary: Solar system stub, primary world config, ocean percentage, sea level, simplified plate regions, plate-influenced elevation, basic mountains, save/load, and map viewer.
+  - id: slice-2-climate-hydrology
+    horizon: next
+    status: planned
+    summary: Temperature bands, required wetness/rainfall model, rain shadows, river routing, basin/lake termination where emergent, ice caps, and biome placement.
+  - id: slice-3-export-ready-mvp
+    horizon: next
+    status: planned
+    summary: Polished clean game-map PNG, simplified SVG, JSON schema documentation, .wforge project package, world summary, parameter ranges, and golden seed tests.
+  - id: slice-4-structured-expansion
+    horizon: later
+    status: planned
+    summary: Optional export profiles such as GeoJSON, CSV/tile data, Markdown summary, Godot, Tiled, and Civ-style abstractions after MVP fundamentals hold.

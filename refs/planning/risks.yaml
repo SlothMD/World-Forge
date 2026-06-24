@@ -1,0 +1,24 @@
+version: 1
+schema: refs/schemas/schemaRegistry.yaml
+updated: 2026-06-24
+risks:
+  - id: simulation-sprawl
+    status: open
+    severity: high
+    summary: Plausibility goals can expand into a full planetary simulator.
+    mitigation: Prefer documented approximations and visible map quality over hard-science completeness for MVP.
+  - id: data-renderer-drift
+    status: open
+    severity: high
+    summary: Pretty rendering can invent facts that are missing from structured data.
+    mitigation: Renderer must be a view over generated layers and never create world facts.
+  - id: projection-rework
+    status: open
+    severity: medium
+    summary: Pixel-bound generation could block future playable map formats.
+    mitigation: Use coordinate helpers and resampling APIs so equirectangular is the MVP backing model, not the permanent public contract.
+  - id: export-scope-creep
+    status: open
+    severity: medium
+    summary: Many valuable export formats could dilute MVP.
+    mitigation: Require PNG, simplified SVG, JSON, and .wforge only; keep other formats as profile architecture.

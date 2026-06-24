@@ -1,0 +1,23 @@
+version: 1
+schema: refs/schemas/schemaRegistry.yaml
+updated: 2026-06-24
+workflows:
+  - id: generate-default-world
+    steps:
+      - Open app.
+      - Generate world with default broadly habitable settings.
+      - Review full-world map and summary.
+      - Export PNG, simplified SVG, and JSON.
+      - Save .wforge project package.
+  - id: refine-seed
+    steps:
+      - Generate random world.
+      - Review map and selected values.
+      - Adjust parameter ranges.
+      - Regenerate with same seed or new seed.
+      - Save preferred version.
+  - id: save-reopen-export
+    steps:
+      - Open saved .wforge project.
+      - Restore seed, config, selected values, solar system, primary world, layers, and export metadata.
+      - Export current map and structured data again.

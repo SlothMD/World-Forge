@@ -1,0 +1,22 @@
+version: 1
+schema: refs/schemas/schemaRegistry.yaml
+updated: 2026-06-24
+boundaries:
+  - id: generator-vs-ui
+    status: accepted
+    owner_area: architecture
+    rules:
+      - Generator packages own procedural rules and generated world facts.
+      - UI may dispatch commands and render state but must not encode generation rules.
+  - id: renderer-vs-data
+    status: accepted
+    owner_area: rendering
+    rules:
+      - Renderer visualizes layers and metadata from world data.
+      - Renderer must not create terrain, biome, climate, or hydrology facts.
+  - id: exporter-vs-generator
+    status: accepted
+    owner_area: export
+    rules:
+      - Exporters serialize or resample generated data.
+      - Exporters must not mutate generated worlds.

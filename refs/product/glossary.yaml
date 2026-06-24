@@ -1,0 +1,12 @@
+version: 1
+schema: refs/schemas/schemaRegistry.yaml
+updated: 2026-06-24
+terms:
+  - term: .wforge
+    definition: Working project package extension for zipped World Forge saves containing manifest and layer data.
+  - term: equirectangular backing grid
+    definition: MVP internal sample grid that wraps east-west and is accessed through coordinate helpers rather than raw pixel logic.
+  - term: export profile
+    definition: A format-specific exporter that serializes or resamples generated world data without changing generation logic.
+  - term: golden seed
+    definition: Fixed seed/config fixture used for deterministic regression tests.

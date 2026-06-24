@@ -1,0 +1,17 @@
+version: 1
+schema: refs/schemas/schemaRegistry.yaml
+updated: 2026-06-24
+integrations:
+  - id: local-filesystem
+    mode: required
+    required_for:
+      - project save/load
+      - exports
+    config_source: user-selected paths
+    status: planned
+  - id: vtt-engine-game-exports
+    mode: future export profiles
+    required_for:
+      - post-MVP integrations
+    config_source: exporter profile configuration
+    status: deferred

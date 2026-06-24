@@ -1,0 +1,20 @@
+version: 1
+schema: refs/schemas/schemaRegistry.yaml
+instructions:
+  - Read refs/project.yaml before starting project work.
+  - Read docs/prd/worldbuilder-map-generator-prd.md before product, architecture, generation, export, or UI work.
+  - Read refs/planning/roadmap.yaml and refs/planning/todos.yaml before adding or changing implementation work.
+  - Read refs/architecture before changing system boundaries or module ownership.
+  - Read refs/implementation/fileMap.yaml before searching broadly.
+  - Keep the generator authoritative; UI renders state and never owns procedural generation rules.
+  - Route all randomness through deterministic seeded utilities and keep generated values inspectable.
+  - Preserve boundaries among generation logic, data schemas, rendering, export formats, and UI state.
+  - Follow TWS UI standards: compact information density, stable layouts, semantic controls, keyboard accessibility, and no player-facing internal development labels.
+  - Read refs/testing/validationCommands.yaml before finalizing changes.
+  - Keep durable decisions, todos, handoffs, and validation notes in refs.
+  - Do not store secrets in refs.
+  - If a project fact is unknown, record it in refs/planning/openQuestions.yaml instead of guessing.
+  - Record durable implementation decisions in refs/planning/decisions.yaml with rationale and consequences.
+  - Update refs/handoffs/currentHandoff.md when stopping with incomplete or context-heavy work.
+  - Keep machine-local paths only in files that explicitly allow machine-local configuration.
+  - Preserve refs file paths unless a framework migration note explains the change.

@@ -1,0 +1,12 @@
+version: 1
+schema: refs/schemas/schemaRegistry.yaml
+updated: 2026-06-24
+screen_patterns:
+  - id: home-start
+    summary: Supports New World, Open Project, Recent Projects if feasible, and Quick Generate.
+  - id: generation-settings
+    summary: Supports seed, randomize seed, parameter ranges, generate, reset, and basic/advanced grouping.
+  - id: map-view
+    summary: Supports full-world map, zoom, pan, layer toggles, seed display, save, and export.
+  - id: export-view
+    summary: Supports output folder, selected formats, current rendered map export, and structured data export.

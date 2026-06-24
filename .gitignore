@@ -1,0 +1,21 @@
+# Local/editor state
+.idea/
+.vscode/
+*.swp
+*.tmp
+
+# Python validation cache
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Build and package output
+dist/
+build/
+out/
+
+# Environment and secrets
+.env
+.env.*
+*.pem
+*.key

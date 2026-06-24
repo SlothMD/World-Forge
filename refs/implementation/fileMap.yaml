@@ -1,0 +1,31 @@
+version: 1
+schema: refs/schemas/schemaRegistry.yaml
+updated: 2026-06-24
+areas:
+  docs:
+    guidance:
+      - Updated PRD source of truth for MVP decisions lives in docs/prd/worldbuilder-map-generator-prd.md.
+    source_roots:
+      - docs/prd
+    notes: Product requirements and decisions should be kept in Markdown.
+  refs:
+    guidance:
+      - Agent-Academy project memory, durable decisions, handoffs, and validation commands.
+    source_roots:
+      - refs
+    notes: Do not store secrets or machine-local credentials.
+  packages:
+    guidance:
+      - Planned TypeScript packages for generator-core, shared, renderer, and exporters.
+    source_roots:
+      - packages/generator-core
+      - packages/shared
+      - packages/renderer
+      - packages/exporters
+    notes: Core packages must stay independent of UI framework state.
+  apps:
+    guidance:
+      - Planned Tauri desktop shell and future frontend entrypoints.
+    source_roots:
+      - apps/desktop
+    notes: UI renders generated state and dispatches actions; it does not own generation rules.

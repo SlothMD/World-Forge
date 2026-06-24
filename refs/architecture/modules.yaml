@@ -1,0 +1,41 @@
+version: 1
+schema: refs/schemas/schemaRegistry.yaml
+updated: 2026-06-24
+modules:
+  - id: generator-core
+    name: Generator Core
+    status: planned
+    owner_area: generation
+    responsibility: Deterministic procedural generation pipeline and domain models independent of UI.
+    dependencies: []
+  - id: shared
+    name: Shared
+    status: planned
+    owner_area: platform
+    responsibility: Types, schema validation, units, coordinate helpers, and data contracts shared across packages.
+    dependencies: []
+  - id: renderer
+    name: Renderer
+    status: planned
+    owner_area: rendering
+    responsibility: Canvas and SVG rendering from structured world layers using configurable palettes.
+    dependencies:
+      - shared
+  - id: exporters
+    name: Exporters
+    status: planned
+    owner_area: export
+    responsibility: PNG, simplified SVG, JSON, .wforge package, and future export profile implementations.
+    dependencies:
+      - shared
+      - renderer
+  - id: desktop
+    name: Desktop App
+    status: planned
+    owner_area: ui
+    responsibility: Local-first Tauri desktop shell with compact controls, map viewer, save/load, and export workflows.
+    dependencies:
+      - generator-core
+      - renderer
+      - exporters
+      - shared

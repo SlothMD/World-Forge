@@ -1,0 +1,13 @@
+version: 1
+schema: refs/schemas/schemaRegistry.yaml
+updated: 2026-06-24
+assumptions:
+  - id: local-first
+    status: accepted
+    summary: MVP generation, save/load, and exports run locally without cloud dependencies.
+  - id: simplified-plausibility
+    status: accepted
+    summary: MVP prioritizes believable output through simplified physical approximations, not hard-science simulation.
+  - id: future-playable-formats
+    status: accepted
+    summary: Core world data must remain resampleable into future tile, hex, engine, VTT, and game-specific outputs.

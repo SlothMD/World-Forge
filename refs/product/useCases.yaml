@@ -1,0 +1,20 @@
+version: 1
+schema: refs/schemas/schemaRegistry.yaml
+updated: 2026-06-24
+use_cases:
+  - id: campaign-planning-map
+    summary: Generate and export a believable world map for tabletop campaign planning.
+    actors:
+      - tabletop-gm
+    outcome: User has a PNG map and saved project that can be reopened.
+  - id: structured-world-foundation
+    summary: Produce a reproducible world data file for later lore, regional maps, or game tooling.
+    actors:
+      - writer-setting-designer
+      - game-designer
+    outcome: User has JSON and .wforge data with stable schema and seed/config.
+  - id: future-playable-map-source
+    summary: Preserve generated world facts in a form that can later be resampled into playable map formats.
+    actors:
+      - game-designer
+    outcome: Core data model does not block tile, hex, engine, VTT, or game-specific exporters.

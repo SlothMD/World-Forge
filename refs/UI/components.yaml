@@ -1,0 +1,19 @@
+version: 1
+schema: refs/schemas/schemaRegistry.yaml
+updated: 2026-06-24
+components:
+  range-controls:
+    rules:
+      - Pair sliders with numeric min/max fields and inline validation.
+  seed-control:
+    rules:
+      - Support copy, manual entry, and randomize seed controls.
+  layer-toggles:
+    rules:
+      - Keep map/debug layer toggles compact and stable.
+  export-profile-selector:
+    rules:
+      - Support PNG, simplified SVG, JSON, and .wforge package export choices.
+  world-summary-panel:
+    rules:
+      - Provide nonvisual metadata and key generated values.

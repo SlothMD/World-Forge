@@ -1,0 +1,13 @@
+version: 1
+schema: refs/schemas/schemaRegistry.yaml
+updated: 2026-06-24
+entries:
+  - date: 2026-06-24
+    summary: Copied Agent-Academy refs harness, adapted it for World Forge, and created Markdown PRD source.
+    files:
+      - docs/prd/worldbuilder-map-generator-prd.md
+      - AGENTS.md
+      - README.md
+      - refs
+    validation:
+      - python refs/tools/validate_refs.py --mode initialized
