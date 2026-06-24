@@ -1,0 +1,10 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/shared" },
+    { "path": "./packages/generator-core" },
+    { "path": "./packages/renderer" },
+    { "path": "./packages/exporters" },
+    { "path": "./apps/desktop" }
+  ]
+}

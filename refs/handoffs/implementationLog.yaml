@@ -3,6 +3,18 @@ schema: refs/schemas/schemaRegistry.yaml
 updated: 2026-06-24
 entries:
   - date: 2026-06-24
+    summary: Implemented browser-testable MVP with deterministic generation, map rendering, required exports, .wforge roundtrip, and validation.
+    files:
+      - package.json
+      - apps/desktop
+      - packages/shared
+      - packages/generator-core
+      - packages/renderer
+      - packages/exporters
+    validation:
+      - npm run validate
+      - npm run build
+  - date: 2026-06-24
     summary: Copied Agent-Academy refs harness, adapted it for World Forge, and created Markdown PRD source.
     files:
       - docs/prd/worldbuilder-map-generator-prd.md

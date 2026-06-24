@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "strict": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "target": "ES2022",
+    "jsx": "react-jsx",
+    "skipLibCheck": true,
+    "baseUrl": "../..",
+    "paths": {
+      "@world-forge/shared": ["packages/shared/src/index.ts"],
+      "@world-forge/generator-core": ["packages/generator-core/src/index.ts"],
+      "@world-forge/renderer": ["packages/renderer/src/index.ts"],
+      "@world-forge/exporters": ["packages/exporters/src/index.ts"]
+    }
+  },
+  "references": [
+    { "path": "../../packages/shared" },
+    { "path": "../../packages/generator-core" },
+    { "path": "../../packages/renderer" },
+    { "path": "../../packages/exporters" }
+  ],
+  "include": ["src"]
+}

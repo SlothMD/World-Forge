@@ -9,10 +9,15 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
+# Node dependencies
+node_modules/
+
 # Build and package output
 dist/
 build/
 out/
+.vite-dev.log
+mvp-smoke.png
 
 # Environment and secrets
 .env

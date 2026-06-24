@@ -8,4 +8,20 @@ Start points:
 - `refs/README.md` for the Agent-Academy project-memory harness.
 - `refs/agents.yaml` for agent operating instructions.
 
+## MVP App
+
+```powershell
+npm install
+npm run dev
+```
+
+Then open `http://127.0.0.1:5173/`.
+
+Validation:
+
+```powershell
+npm run validate
+npm run build
+```
+
 Do not store secrets or machine-local credentials in this repository.

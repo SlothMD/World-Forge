@@ -3,26 +3,26 @@ schema: refs/schemas/schemaRegistry.yaml
 updated: 2026-06-24
 todos:
   - id: scaffold-monorepo
-    status: open
+    status: done
     area: architecture
     summary: Scaffold TypeScript-first package layout with generator-core, renderer, exporters, shared types, and desktop shell boundary.
   - id: define-core-schemas
-    status: open
+    status: done
     area: data
     summary: Define Project, GenerationConfig, SolarSystem, PrimaryWorld, MapLayer, and ExportManifest types plus JSON schema.
   - id: implement-seeded-random
-    status: open
+    status: done
     area: generation
     summary: Implement deterministic seeded PRNG and require all random generation to flow through it.
   - id: implement-world-coordinate-api
-    status: open
+    status: done
     area: generation
     summary: Implement wrapped equirectangular coordinate, neighbor, latitude, longitude, and resampling helpers.
   - id: define-package-format
-    status: open
+    status: done
     area: persistence
     summary: Define .wforge zip package manifest, layer storage, schema versioning, and load compatibility behavior.
   - id: write-golden-seed-tests
-    status: open
+    status: done
     area: testing
     summary: Add deterministic fixtures covering default, dry, wet, hot, cold, high-ocean, low-ocean, and mountain-heavy worlds.
