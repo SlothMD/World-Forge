@@ -113,7 +113,49 @@ function App() {
   const [mapMode, setMapMode] = useState<MapMode>('biomes');
   const [viewMode, setViewMode] = useState<ViewMode>('map');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState(0);
+  const generationEstimateRef = useRef(24000);
+  const generationStartedAtRef = useRef(0);
+  const generationTaskIdRef = useRef('');
+  const workerRef = useRef<Worker | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const worker = new Worker(new URL('./generationWorker.ts', import.meta.url), { type: 'module' });
+    workerRef.current = worker;
+    worker.onmessage = (event: MessageEvent<{ type: 'complete' | 'error'; id: string; project?: WorldProject; message?: string }>) => {
+      if (event.data.id !== generationTaskIdRef.current) return;
+      if (event.data.type === 'complete' && event.data.project) {
+        setProject(event.data.project);
+        generationEstimateRef.current = Math.max(3000, event.data.project.diagnostics?.totalMs ?? generationEstimateRef.current);
+      } else if (event.data.type === 'error') {
+        console.error(event.data.message ?? 'Generation failed');
+      }
+      setGenerationProgress(1);
+      setIsGenerating(false);
+    };
+    worker.onerror = (event) => {
+      console.error(event.message);
+      setIsGenerating(false);
+    };
+    return () => {
+      worker.terminate();
+      if (workerRef.current === worker) workerRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isGenerating) {
+      setGenerationProgress(0);
+      return;
+    }
+    const timer = window.setInterval(() => {
+      const elapsed = performance.now() - generationStartedAtRef.current;
+      const linear = Math.min(0.96, elapsed / Math.max(1000, generationEstimateRef.current));
+      setGenerationProgress(1 - (1 - linear) ** 2);
+    }, 150);
+    return () => window.clearInterval(timer);
+  }, [isGenerating]);
 
   useEffect(() => {
     if (!canvasRef.current || viewMode !== 'map') return;
@@ -135,9 +177,22 @@ function App() {
 
   const generate = (nextConfig = config) => {
     if (invalidRanges.length > 0) return;
+    const taskId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    generationTaskIdRef.current = taskId;
+    generationStartedAtRef.current = performance.now();
+    generationEstimateRef.current = Math.max(3000, project.diagnostics?.totalMs ?? generationEstimateRef.current);
+    setGenerationProgress(0.02);
     setIsGenerating(true);
+    if (workerRef.current) {
+      workerRef.current.postMessage({ type: 'generate', id: taskId, config: nextConfig });
+      return;
+    }
     window.setTimeout(() => {
-      setProject(generateProject(nextConfig));
+      const nextProject = generateProject(nextConfig);
+      if (generationTaskIdRef.current !== taskId) return;
+      setProject(nextProject);
+      generationEstimateRef.current = Math.max(3000, nextProject.diagnostics?.totalMs ?? generationEstimateRef.current);
+      setGenerationProgress(1);
       setIsGenerating(false);
     }, 20);
   };
@@ -368,6 +423,13 @@ function App() {
           </div>
         </div>
         <div className="canvas-wrap">
+          {isGenerating && (
+            <div className="generation-progress" role="status" aria-live="polite">
+              <span>Generating world</span>
+              <progress value={generationProgress} max={1} />
+              <output>{Math.round(generationProgress * 100)}%</output>
+            </div>
+          )}
           {viewMode === 'map' ? (
             <canvas ref={canvasRef} aria-label={`Generated map for ${project.projectName}`} />
           ) : (
@@ -624,8 +686,8 @@ function globeAlbedoColor(project: WorldProject, index: number, x: number, y: nu
   if (water) {
     const depth = clamp01((world.seaLevel - elevation) / 0.42);
     const shore = clamp01(1 - depth * 3.2);
-    const base = mixRgb([34, 105, 136], [18, 61, 96], depth);
-    return mixRgb(base, [98, 164, 172], shore * 0.42);
+    const base = mixRgb([36, 102, 142], [16, 54, 90], depth);
+    return mixRgb(base, [72, 146, 174], shore * 0.34);
   }
 
   const biome = codeToBiome(world.layers.biomes[index]);
@@ -653,14 +715,18 @@ function drawGlobeTextureRivers(ctx: CanvasRenderingContext2D, world: WorldProje
   ctx.save();
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  ctx.strokeStyle = 'rgba(198, 238, 245, 0.78)';
-  ctx.lineWidth = Math.max(1, textureWidth / 1600);
+  ctx.strokeStyle = 'rgba(176, 223, 226, 0.48)';
+  ctx.lineWidth = Math.max(0.75, textureWidth / 2200);
   for (const river of world.rivers) {
     if (river.path.length < 4) continue;
     ctx.beginPath();
     let started = false;
     let previousX = 0;
     for (const cell of river.path) {
+      if (world.layers.water[cell] === 1) {
+        started = false;
+        continue;
+      }
       const x = (cell % world.mapModel.resolution.width) * scaleX;
       const y = Math.floor(cell / world.mapModel.resolution.width) * scaleY;
       if (!started || Math.abs(x - previousX) > textureWidth / 2) {
@@ -849,8 +915,19 @@ function Metric({ label, value, status }: { label: string; value: string; status
 }
 
 function BiomeLegend() {
+  const waterEntries = [
+    ['deep ocean', cleanGameMapTheme.colors.oceanDeep],
+    ['ocean', cleanGameMapTheme.colors.ocean],
+    ['shallow shelf', cleanGameMapTheme.colors.shelf]
+  ];
   return (
     <div className="map-legend" aria-label="Biome color legend">
+      {waterEntries.map(([label, color]) => (
+        <span key={label}>
+          <i style={{ background: color }} />
+          {label}
+        </span>
+      ))}
       {biomeNames.map((biome) => (
         <span key={biome}>
           <i style={{ background: biomeLegendColor(biome) }} />

@@ -59,6 +59,12 @@ type PrimordialFields = {
   impact: Float32Array;
 };
 
+type TerrainPhases = {
+  phaseA: number;
+  phaseB: number;
+  continentPhase: number;
+};
+
 type ContinentRegion = {
   x: number;
   y: number;
@@ -68,11 +74,14 @@ type ContinentRegion = {
   axisX: number;
   axisY: number;
   axisZ: number;
+  influenceDot: number;
   lobes: Array<{
     x: number;
     y: number;
     z: number;
     radius: number;
+    innerDot: number;
+    outerDot: number;
     weight: number;
   }>;
 };
@@ -268,7 +277,9 @@ function generatePrimaryWorld(
   const topologyPlateData = diagnostics.measure('topology.plates.create', () => createTopologyPlates(topology, values.plateCount, rng, primordial));
 
   diagnostics.measure('topology.plates.assign', () => assignTopologyPlateLayer(topologyPlates, topology, topologyPlateData));
-  diagnostics.measure('topology.terrain.elevation', () => generateTopologyElevation(topologyElevation, topologyPlates, topologyPlateData, topology, values, rng, primordial));
+  const terrainPhases = diagnostics.measure('topology.terrain.phases', () => createTerrainPhases(rng));
+  const topologyCrust = diagnostics.measure('topology.terrain.crust-fields', () => generateCrustFields(topology, values, terrainPhases.phaseA, terrainPhases.phaseB, terrainPhases.continentPhase));
+  diagnostics.measure('topology.terrain.elevation', () => generateTopologyElevation(topologyElevation, topologyPlates, topologyPlateData, topology, values, primordial, topologyCrust, terrainPhases));
   let seaLevel = diagnostics.measure('topology.water.sea-level.pre-aging', () => findTopologySeaLevelForOceanTarget(topologyElevation, topology.areaWeights, values.oceanPercentage, values.seaLevel));
   diagnostics.measure('topology.terrain.aging', () => applyTopologyTerrainAging(topologyElevation, topology, values.systemAgeGy, values.impactFrequency, seaLevel, rng, diagnostics));
   diagnostics.measure('topology.terrain.enrichment', () => applyTopologyTerrainEnrichment(topologyElevation, topology, values, rng));
@@ -449,6 +460,14 @@ function assignTopologyPlateLayer(layer: Uint16Array, topology: CubedSphereTopol
   }
 }
 
+function createTerrainPhases(rng: SeededRandom): TerrainPhases {
+  return {
+    phaseA: rng.range(0, 1000),
+    phaseB: rng.range(0, 1000),
+    continentPhase: rng.range(0, 1000)
+  };
+}
+
 function generatePrimordialFields(topology: CubedSphereTopology, values: SelectedValues, rng: SeededRandom): PrimordialFields {
   const elevation = new Float32Array(topology.cellCount);
   const crustAge = new Float32Array(topology.cellCount);
@@ -489,8 +508,9 @@ function generatePrimordialFields(topology: CubedSphereTopology, values: Selecte
     const cz = topology.positions[center * 3 + 2];
     for (let cell = 0; cell < topology.cellCount; cell += 1) {
       const dot = cx * topology.positions[cell * 3] + cy * topology.positions[cell * 3 + 1] + cz * topology.positions[cell * 3 + 2];
-      const distance = Math.acos(clamp(dot, -1, 1)) / Math.PI;
-      if (distance > radius * 1.42) continue;
+      const clampedDot = clamp(dot, -1, 1);
+      if (clampedDot < Math.cos(radius * 1.42 * Math.PI)) continue;
+      const distance = Math.acos(clampedDot) / Math.PI;
       const t = distance / radius;
       const bowl = t <= 1 ? (1 - t) ** 2 : 0;
       const rim = Math.max(0, 1 - Math.abs(t - 0.95) / 0.24);
@@ -513,13 +533,11 @@ function generateTopologyElevation(
   plates: TopologyPlate[],
   topology: CubedSphereTopology,
   values: SelectedValues,
-  rng: SeededRandom,
-  primordial: PrimordialFields
+  primordial: PrimordialFields,
+  crust: CrustFields,
+  phases: TerrainPhases
 ): void {
-  const phaseA = rng.range(0, 1000);
-  const phaseB = rng.range(0, 1000);
-  const continentPhase = rng.range(0, 1000);
-  const crust = generateCrustFields(topology, values, phaseA, phaseB, continentPhase);
+  const { phaseA, phaseB, continentPhase } = phases;
   for (let cell = 0; cell < topology.cellCount; cell += 1) {
     const x = topology.positions[cell * 3];
     const y = topology.positions[cell * 3 + 1];
@@ -595,16 +613,18 @@ function generateCrustFields(topology: CubedSphereTopology, values: SelectedValu
     const z = topology.positions[cell * 3 + 2];
     let primary = 0;
     for (const region of continentRegions) {
+      const centerDot = x * region.x + y * region.y + z * region.z;
+      if (centerDot < region.influenceDot) continue;
       let regionValue = 0;
       for (const lobe of region.lobes) {
         const dot = clamp(x * lobe.x + y * lobe.y + z * lobe.z, -1, 1);
-        const distance = Math.acos(dot) / Math.PI;
         const axial = Math.abs(x * region.axisX + y * region.axisY + z * region.axisZ);
         const edgeWarp =
           coherentSphericalNoise(x * 3.2 + lobe.x * 9, y * 3.2 + lobe.y * 9, z * 3.2 + lobe.z * 9) * 0.04 +
           coherentSphericalNoise(x * 7.4 - lobe.z * 5, y * 7.4 + lobe.x * 5, z * 7.4 - lobe.y * 5) * 0.018;
-        const radius = lobe.radius * (1 + axial * region.elongation) + edgeWarp;
-        regionValue = Math.max(regionValue, (1 - smoothStep(radius, radius + 0.075, distance)) * lobe.weight);
+        const adjustedInnerDot = lobe.innerDot - edgeWarp * 2.65;
+        const adjustedOuterDot = lobe.outerDot - edgeWarp * 2.65 - axial * region.elongation * 0.12;
+        regionValue = Math.max(regionValue, smoothStep(adjustedOuterDot, adjustedInnerDot, dot) * lobe.weight);
       }
       primary = Math.max(primary, regionValue);
     }
@@ -659,7 +679,8 @@ function chooseContinentRegions(count: number, baseRadius: number, phaseA: numbe
     const lobeCount = 2 + Math.abs(Math.round(latticeNoise3(index * 5.3, phaseA * 0.031, phaseB * 0.029) * 2));
     const lobes = Array.from({ length: lobeCount }, (_, lobeIndex) => {
       if (lobeIndex === 0) {
-        return { x: center.x, y: center.y, z: center.z, radius: baseRadius * center.scale, weight: 1 };
+        const radius = baseRadius * center.scale;
+        return { x: center.x, y: center.y, z: center.z, radius, innerDot: Math.cos(radius * Math.PI), outerDot: Math.cos((radius + 0.075) * Math.PI), weight: 1 };
       }
       const offset = continentCenterVector(index * 17 + lobeIndex * 3, phaseA + lobeIndex * 11, phaseB - lobeIndex * 7, phaseC + lobeIndex * 5);
       const mixed = normalize3(
@@ -667,18 +688,23 @@ function chooseContinentRegions(count: number, baseRadius: number, phaseA: numbe
         center.y * 0.82 + offset.y * 0.36,
         center.z * 0.82 + offset.z * 0.36
       );
+      const radius = baseRadius * center.scale * lerp(0.55, 0.9, (latticeNoise3(index, lobeIndex, phaseC * 0.01) + 1) / 2);
       return {
         ...mixed,
-        radius: baseRadius * center.scale * lerp(0.55, 0.9, (latticeNoise3(index, lobeIndex, phaseC * 0.01) + 1) / 2),
+        radius,
+        innerDot: Math.cos(radius * Math.PI),
+        outerDot: Math.cos((radius + 0.075) * Math.PI),
         weight: lerp(0.62, 0.92, (latticeNoise3(index * 2, lobeIndex * 3, phaseB * 0.01) + 1) / 2)
       };
     });
+    const maxRadius = lobes.reduce((max, lobe) => Math.max(max, lobe.radius), 0);
     return {
       ...center,
       elongation: lerp(0.15, 0.75, (latticeNoise3(index * 4.1, phaseB * 0.021, phaseC * 0.017) + 1) / 2),
       axisX: axisSeed.x,
       axisY: axisSeed.y,
       axisZ: axisSeed.z,
+      influenceDot: Math.cos(Math.min(0.48, maxRadius * 1.95 + 0.18) * Math.PI),
       lobes
     };
   });
@@ -793,6 +819,52 @@ function percentile(values: number[], p: number): number {
   return sorted[Math.max(0, Math.min(sorted.length - 1, Math.floor(sorted.length * p)))];
 }
 
+function floatLayerPercentile(values: Float32Array, p: number): number {
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+  for (const value of values) {
+    if (value < min) min = value;
+    if (value > max) max = value;
+  }
+  if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) return values[0] ?? 0;
+  return histogramPercentile(values, p, min, max, false);
+}
+
+function positiveFloatLayerPercentile(values: Float32Array, p: number): number {
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+  let count = 0;
+  for (const value of values) {
+    if (value <= 0) continue;
+    if (value < min) min = value;
+    if (value > max) max = value;
+    count += 1;
+  }
+  if (count === 0) return Number.POSITIVE_INFINITY;
+  if (min === max) return min;
+  return histogramPercentile(values, p, min, max, true);
+}
+
+function histogramPercentile(values: Float32Array, p: number, min: number, max: number, positiveOnly: boolean): number {
+  const bins = 4096;
+  const counts = new Uint32Array(bins);
+  const scale = (bins - 1) / (max - min);
+  let total = 0;
+  for (const value of values) {
+    if (positiveOnly && value <= 0) continue;
+    const bin = Math.max(0, Math.min(bins - 1, Math.floor((value - min) * scale)));
+    counts[bin] += 1;
+    total += 1;
+  }
+  const target = Math.max(0, Math.min(total - 1, Math.floor(total * p)));
+  let running = 0;
+  for (let bin = 0; bin < bins; bin += 1) {
+    running += counts[bin];
+    if (running > target) return min + (bin / (bins - 1)) * (max - min);
+  }
+  return max;
+}
+
 function wrappedAngle(value: number): number {
   return Math.atan2(Math.sin(value), Math.cos(value));
 }
@@ -839,16 +911,29 @@ function projectTopologyToEquirectangular(
   }
 }
 
-function findTopologySeaLevelForOceanTarget(elevation: Float32Array, areaWeights: Float32Array, oceanTarget: number, adjustment: number): number {
-  const cells = Array.from(elevation, (value, index) => ({ value, weight: areaWeights[index] || 1 })).sort((a, b) => a.value - b.value);
-  const totalWeight = cells.reduce((sum, cell) => sum + cell.weight, 0);
-  const targetWeight = totalWeight * (oceanTarget / 100);
-  let running = 0;
-  for (const cell of cells) {
-    running += cell.weight;
-    if (running >= targetWeight) return cell.value + adjustment * 0.01;
+function findTopologySeaLevelForOceanTarget(elevation: Float32Array, _areaWeights: Float32Array, oceanTarget: number, adjustment: number): number {
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+  for (let index = 0; index < elevation.length; index += 1) {
+    const value = elevation[index];
+    if (value < min) min = value;
+    if (value > max) max = value;
   }
-  return cells[cells.length - 1]?.value ?? 0;
+  if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) return (elevation[0] ?? 0) + adjustment * 0.01;
+  const bins = 4096;
+  const counts = new Uint32Array(bins);
+  const scale = (bins - 1) / (max - min);
+  for (let index = 0; index < elevation.length; index += 1) {
+    const bin = Math.max(0, Math.min(bins - 1, Math.floor((elevation[index] - min) * scale)));
+    counts[bin] += 1;
+  }
+  const targetCount = elevation.length * (oceanTarget / 100);
+  let running = 0;
+  for (let bin = 0; bin < bins; bin += 1) {
+    running += counts[bin];
+    if (running >= targetCount) return min + (bin / (bins - 1)) * (max - min) + adjustment * 0.01;
+  }
+  return max + adjustment * 0.01;
 }
 
 function assignTopologyWater(water: Uint8Array, elevation: Float32Array, seaLevel: number): void {
@@ -881,7 +966,9 @@ function applyTopologyImpacts(elevation: Float32Array, topology: CubedSphereTopo
     const cz = topology.positions[center * 3 + 2];
     for (let cell = 0; cell < topology.cellCount; cell += 1) {
       const dot = cx * topology.positions[cell * 3] + cy * topology.positions[cell * 3 + 1] + cz * topology.positions[cell * 3 + 2];
-      const distance = Math.acos(clamp(dot, -1, 1)) / Math.PI;
+      const clampedDot = clamp(dot, -1, 1);
+      if (clampedDot < Math.cos(radius * 1.35 * Math.PI)) continue;
+      const distance = Math.acos(clampedDot) / Math.PI;
       if (distance > radius * 1.35) continue;
       const underwaterDamping = elevation[cell] < seaLevel ? 0.15 : 1;
       const t = distance / radius;
@@ -943,8 +1030,8 @@ function applyTopologyTerrainEnrichment(elevation: Float32Array, topology: Cubed
   const phaseA = rng.range(0, 1000);
   const phaseB = rng.range(0, 1000);
   const phaseC = rng.range(0, 1000);
-  const low = percentile(Array.from(elevation), 0.2);
-  const high = percentile(Array.from(elevation), 0.9);
+  const low = floatLayerPercentile(elevation, 0.2);
+  const high = floatLayerPercentile(elevation, 0.9);
   for (let cell = 0; cell < elevation.length; cell += 1) {
     const x = topology.positions[cell * 3];
     const y = topology.positions[cell * 3 + 1];
@@ -1090,12 +1177,12 @@ function generateTopologyHydrology(
     }
     flow[next] += flow[cell] * 0.92;
   }
-  const channelThreshold = percentile(Array.from(flow).filter((value) => value > 0), clamp(0.91 - riverDensity * 0.032, 0.68, 0.91));
+  const channelThreshold = positiveFloatLayerPercentile(flow, clamp(0.91 - riverDensity * 0.032, 0.68, 0.91));
   for (let cell = 0; cell < flow.length; cell += 1) {
     if (water[cell] === 1 || flow[cell] <= channelThreshold) continue;
     river[cell] += clamp((flow[cell] - channelThreshold) / Math.max(0.0001, channelThreshold * 2.4));
   }
-  const threshold = percentile(Array.from(flow).filter((value) => value > 0), clamp(0.94 - riverDensity * 0.024, 0.78, 0.94));
+  const threshold = positiveFloatLayerPercentile(flow, clamp(0.94 - riverDensity * 0.024, 0.78, 0.94));
   const sourceCandidates = order
     .filter((cell) => water[cell] === 0 && flow[cell] > threshold && elevation[cell] > seaLevel + 0.09)
     .sort((a, b) => riverSourceScore(flow, elevation, oceanInfluence, seaLevel, b) - riverSourceScore(flow, elevation, oceanInfluence, seaLevel, a));

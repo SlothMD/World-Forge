@@ -1,7 +1,21 @@
 version: 1
 schema: refs/schemas/schemaRegistry.yaml
-updated: 2026-06-24
+updated: 2026-06-25
 entries:
+  - date: 2026-06-25
+    summary: Stamped the High-resolution default seed baseline, optimized topology generation hotspots, and moved Generate runs into a UI-responsive Worker with progress feedback.
+    files:
+      - packages/generator-core/src/index.ts
+      - packages/renderer/src/index.ts
+      - apps/desktop/src/main.tsx
+      - apps/desktop/src/generationWorker.ts
+      - apps/desktop/src/styles.css
+      - refs/benchmarks/defaultSeedBaseline.md
+      - refs/handoffs/currentHandoff.md
+      - refs/planning/todos.yaml
+    validation:
+      - npm run typecheck
+      - focused 2048x1024 seed 1001001 benchmark
   - date: 2026-06-25
     summary: Added generation diagnostics, benchmark tooling, and optimized core generation hotspots while reducing ice-world bias.
     files:

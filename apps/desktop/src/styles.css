@@ -305,6 +305,36 @@ canvas {
   width: 100%;
 }
 
+.generation-progress {
+  align-items: center;
+  background: rgba(17, 39, 45, 0.88);
+  border: 1px solid rgba(198, 218, 214, 0.5);
+  border-radius: 8px;
+  color: #eef6f2;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto minmax(160px, 260px) 44px;
+  left: 50%;
+  padding: 10px 12px;
+  position: absolute;
+  top: 16px;
+  transform: translateX(-50%);
+  z-index: 5;
+}
+
+.generation-progress span,
+.generation-progress output {
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.generation-progress progress {
+  accent-color: #9dd0d1;
+  height: 12px;
+  width: 100%;
+}
+
 .globe-viewer {
   background:
     radial-gradient(circle at 48% 46%, rgba(255, 255, 255, 0.1), transparent 28%),

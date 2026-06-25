@@ -125,13 +125,16 @@ todos:
       - Globe displacement should stay presentation-scaled and subtle; terrain is intentionally not drawn at diagnostic/exaggerated height.
       - Follow-up: code-split Three.js, expose globe layer controls, add atmosphere/cloud presentation, and consider direct topology rendering for future non-equirectangular views.
   - id: optimize-topology-generation
-    status: open
+    status: in_progress
     area: performance
     priority: high
     summary: Optimize high-resolution topology generation after primordial/plate-history terrain improvements.
     notes:
-      - Current 2048x1024 generation for seed 1001001 is about 36 seconds locally.
-      - Major hotspot is topology terrain elevation; profile before changing algorithms.
+      - Default seed 1001001 at 2048x1024 is stamped in refs/benchmarks/defaultSeedBaseline.md.
+      - First optimization pass reduced local 2048x1024 generation from about 38.8 seconds to about 23.7 seconds while preserving about 69.7% ocean and 51 named rivers.
+      - Full-array percentile sorts were replaced with histogram percentiles; continent crust-field generation now skips region/lobe math outside each region influence.
+      - Current major hotspots are topology.terrain.crust-fields and topology.hydrology; profile before changing hydrology algorithms.
+      - Generate now runs in a Worker after startup with an estimated progress indicator so long High-resolution runs keep the UI responsive.
       - Preserve visual quality of the primordial/plate-history pass while reducing repeated all-cell scans and boundary loops.
   - id: add-space-presentation
     status: open

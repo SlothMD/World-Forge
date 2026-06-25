@@ -23,7 +23,7 @@ export const cleanGameMapTheme: MapTheme = {
   colors: {
     oceanDeep: '#1e4f73',
     ocean: '#2f7fa6',
-    shelf: '#65a9bd',
+    shelf: '#4f9fba',
     ice: '#eef7fb',
     tundra: '#b6c7ad',
     desert: '#d6bf72',
@@ -244,7 +244,8 @@ function drawRivers(ctx: CanvasRenderingContext2D, world: PrimaryWorld, theme: M
   ctx.lineJoin = 'round';
   for (const river of world.rivers) {
     if (river.path.length < 8) continue;
-    const segments = splitWrappedRiverPath(river.path, width, scaleX, scaleY);
+    const visiblePath = river.path.filter((index, pathIndex) => pathIndex === 0 || world.layers.water[river.path[pathIndex - 1]] === 0);
+    const segments = splitWrappedRiverPath(visiblePath, width, scaleX, scaleY);
     ctx.lineWidth = Math.max(2.4, Math.min(5.6, river.path.length / 44) * Math.max(scaleX, scaleY));
     ctx.strokeStyle = theme.colors.riverShadow;
     ctx.globalAlpha = 0.82;

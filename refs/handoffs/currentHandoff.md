@@ -50,6 +50,10 @@ Implemented pieces:
 - Globe land displacement is presentation-scaled and intentionally subtle; it should not use exaggerated diagnostic terrain heights.
 - Further texture polish should move toward globe-specific normal/roughness/depth/cloud maps rather than reusing the inspection-map palette directly.
 - Fixed `createDefaultConfig()` to deep-clone parameter ranges so tests/UI changes do not mutate global defaults.
+- Stamped default seed `1001001` at `2048x1024` as the current High-resolution performance baseline in `refs/benchmarks/defaultSeedBaseline.md`.
+- Optimized High-resolution generation by replacing full-array percentile sorts with fixed-bin histogram percentiles, splitting crust-field generation into its own diagnostic phase, and skipping continent-lobe math outside each region influence.
+- Generate now runs through a desktop/web Worker after startup and shows an estimated progress indicator, keeping the UI responsive during long High-resolution runs.
+- Biome legend now includes deep ocean, ocean, and shallow shelf colors. Shallow shelf color was shifted away from ambiguous cyan, and river overlays stop at water cells in map/globe presentation.
 
 Important architecture change:
 
@@ -73,6 +77,7 @@ Recent local validation notes:
 - `npm run build` emits a large-chunk warning after adding Three.js; code-splitting the globe viewer is a useful follow-up but not a runtime blocker.
 - High-resolution 2048x1024 diagnostic for seed `1001001` produced about 70.4% ocean, 35 named rivers, about 40.6k topology river-channel cells, no basin-terminating named rivers, and five substantial landmasses; generation took about 24.6 seconds locally.
 - After the primordial/plate-history pass, high-resolution 2048x1024 diagnostic for seed `1001001` produced about 70.5% ocean, 51 named rivers, no basin-terminating named rivers, and seven substantial landmasses; generation took about 36.3 seconds locally. `topology.terrain.elevation` is now the major hotspot.
+- After the first High-resolution optimization pass, seed `1001001` at `2048x1024` produced 69.7% ocean, 1.0% ice, and 51 named rivers in about 23.7 seconds locally. Current measured hotspots are `topology.terrain.crust-fields` at about 7.8 seconds and `topology.hydrology` at about 4.7 seconds.
 - `npm run validate` is blocked locally until PyYAML is installed for `refs/tools/validate_refs.py`.
 
 ## Known Gaps
@@ -100,14 +105,15 @@ Current benchmark sample after first optimization pass:
 - 256x128: about 364 ms average, about 11.4% ice.
 - 512x256: about 757 ms average, about 12.0% ice.
 - 1024x512: about 1989 ms average, about 11.4% ice.
+- 2048x1024 default seed `1001001`: about 23.7 seconds after the current optimization pass.
 
-Current measured hotspots at 1024x512 are terrain aging, glaciation, terrain elevation, plate assignment, flow fields, wetness smoothing, and climate.
+Current measured hotspots at 2048x1024 are crust-field generation, hydrology priority-flood/flow ordering, terrain primordial/enrichment/elevation passes, plate assignment, and climate.
 
 ## Next Useful Actions
 
 1. Visually QA high-resolution 2048x1024 output after adjustable Region-count/multi-lobed continent updates.
 2. Visually QA the primordial/plate-history pass at 2048x1024 and decide whether to keep/tune it before optimizing.
-3. Optimize high-resolution topology generation, especially `topology.terrain.elevation`, while preserving the new primordial/plate-history visual quality.
+3. Continue optimizing high-resolution topology generation, now focused on crust-field and hydrology phases, while preserving the new primordial/plate-history visual quality.
 4. Expand Globe view with atmosphere, clouds, sun/moon scene objects, day/night lighting, layer controls, and direct topology/cubed-sphere sampling where useful.
 5. Code-split the Three.js globe viewer so 2D-only startup stays lightweight.
 6. Add richer wind/current circulation as topology vector fields rather than raster-only visualization.
