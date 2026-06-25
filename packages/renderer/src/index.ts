@@ -28,7 +28,7 @@ export function renderWorldToCanvas(
   canvas: HTMLCanvasElement,
   project: WorldProject,
   theme: MapTheme = cleanGameMapTheme,
-  visible = { rivers: true, plates: false }
+  visible = { rivers: true, plates: false, heightmap: false }
 ): void {
   const world = project.primaryWorld;
   const { width, height } = world.mapModel.resolution;
@@ -42,7 +42,7 @@ export function renderWorldToCanvas(
   for (let i = 0; i < world.layers.elevation.length; i += 1) {
     const biome = codeToBiome(world.layers.biomes[i]);
     const elevation = normalizeValue(world.layers.elevation[i], minElevation, maxElevation);
-    const color = colorForCell(world, i, biome, elevation, theme);
+    const color = visible.heightmap ? heightmapColor(world, i, elevation) : colorForCell(world, i, biome, elevation, theme);
     const offset = i * 4;
     image.data[offset] = color[0];
     image.data[offset + 1] = color[1];
@@ -97,6 +97,16 @@ function colorForCell(world: PrimaryWorld, index: number, biome: string, elevati
   const rgb = parseHex(hex);
   const shade = biome === 'ocean' ? 0.76 + elevation * 0.18 : 0.86 + elevation * 0.22;
   return [Math.round(rgb[0] * shade), Math.round(rgb[1] * shade), Math.round(rgb[2] * shade)];
+}
+
+function heightmapColor(world: PrimaryWorld, index: number, elevation: number): [number, number, number] {
+  if (world.layers.water[index]) {
+    const blue = Math.round(80 + elevation * 90);
+    return [24, Math.max(60, blue - 20), blue];
+  }
+  const value = Math.round(58 + elevation * 178);
+  if (world.layers.ice[index]) return [220, 236, 241];
+  return [value, value, value];
 }
 
 function hexForBiome(world: PrimaryWorld, index: number, theme: MapTheme): string {

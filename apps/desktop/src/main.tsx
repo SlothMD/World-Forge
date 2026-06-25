@@ -21,17 +21,24 @@ const rangeLabels: Record<RangeKey, string> = {
   moonCount: 'Moons'
 };
 
+const resolutionOptions = [
+  { label: 'Fast 256 x 128', width: 256, height: 128 },
+  { label: 'Default 512 x 256', width: 512, height: 256 },
+  { label: 'Large 1024 x 512', width: 1024, height: 512 }
+];
+
 function App() {
   const [config, setConfig] = useState<GenerationConfig>(() => createDefaultConfig('earthlike-default-001'));
   const [project, setProject] = useState<WorldProject>(() => generateProject(createDefaultConfig('earthlike-default-001')));
   const [showPlates, setShowPlates] = useState(false);
   const [showRivers, setShowRivers] = useState(true);
+  const [showHeightmap, setShowHeightmap] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     if (!canvasRef.current) return;
-    renderWorldToCanvas(canvasRef.current, project, cleanGameMapTheme, { rivers: showRivers, plates: showPlates });
-  }, [project, showPlates, showRivers]);
+    renderWorldToCanvas(canvasRef.current, project, cleanGameMapTheme, { rivers: showRivers, plates: showPlates, heightmap: showHeightmap });
+  }, [project, showHeightmap, showPlates, showRivers]);
 
   const invalidRanges = useMemo(() => {
     return Object.entries(config.parameterRanges)
@@ -113,6 +120,27 @@ function App() {
             Generate
           </button>
         </div>
+        <div className="resolution-row">
+          <label htmlFor="resolution">Resolution</label>
+          <select
+            id="resolution"
+            value={`${config.outputResolution.width}x${config.outputResolution.height}`}
+            onChange={(event) => {
+              const nextResolution = resolutionOptions.find((option) => `${option.width}x${option.height}` === event.target.value);
+              if (!nextResolution) return;
+              setConfig({
+                ...config,
+                outputResolution: { width: nextResolution.width, height: nextResolution.height }
+              });
+            }}
+          >
+            {resolutionOptions.map((option) => (
+              <option key={option.label} value={`${option.width}x${option.height}`}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
         {invalidRanges.length > 0 && <div className="validation">Invalid ranges: {invalidRanges.join(', ')}</div>}
         <div className="range-grid">
           {(Object.keys(config.parameterRanges) as RangeKey[]).map((key) => (
@@ -132,6 +160,7 @@ function App() {
           <div className="layer-toggles">
             <label><input type="checkbox" checked={showRivers} onChange={(event) => setShowRivers(event.target.checked)} /> Rivers</label>
             <label><input type="checkbox" checked={showPlates} onChange={(event) => setShowPlates(event.target.checked)} /> Plates</label>
+            <label><input type="checkbox" checked={showHeightmap} onChange={(event) => setShowHeightmap(event.target.checked)} /> Heightmap</label>
           </div>
           <div className="download-actions">
             <button type="button" onClick={downloadPng} title="Export PNG"><Image size={16} />PNG</button>
@@ -156,6 +185,8 @@ function App() {
         <Metric label="Ice" value={`${project.metrics.icePercentage}%`} />
         <Metric label="Rivers" value={String(project.metrics.riverCount)} status={project.metrics.validation.riverPathsValid ? 'ok' : 'warn'} />
         <Metric label="Lake cells" value={String(project.metrics.lakeCellCount)} />
+        <Metric label="Map scale" value={`${project.primaryWorld.mapModel.resolution.width} x ${project.primaryWorld.mapModel.resolution.height}`} />
+        <Metric label="Planet size" value={`${project.primaryWorld.sizeClass} Earth radii`} />
         <Metric label="Tide influence" value={String(project.primaryWorld.tideInfluence)} />
         <Metric label="Axial tilt" value={`${project.primaryWorld.axialTiltDeg} deg`} />
         <Metric label="Eccentricity" value={String(project.primaryWorld.orbitalEccentricity)} />

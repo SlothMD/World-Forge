@@ -26,3 +26,15 @@ todos:
     status: done
     area: testing
     summary: Add deterministic fixtures covering default, dry, wet, hot, cold, high-ocean, low-ocean, and mountain-heavy worlds.
+  - id: smooth-map-output
+    status: open
+    area: rendering
+    summary: Add smoothing passes for elevation, water masks, and biome/wetness classification to reduce chunky geometry and speckled coastlines.
+  - id: improve-river-shape
+    status: open
+    area: hydrology
+    summary: Replace straight fallback river paths with meandering drainage paths that still validate as downhill.
+  - id: split-resolution-controls
+    status: open
+    area: ui
+    summary: Separate generation resolution, display scale, and export resolution controls.

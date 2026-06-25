@@ -15,6 +15,7 @@ body {
 
 button,
 input,
+select,
 label.file-button {
   font: inherit;
 }
@@ -53,7 +54,7 @@ label.file-button:focus-within {
 .app-shell {
   display: grid;
   gap: 10px;
-  grid-template-columns: 360px minmax(520px, 1fr) 280px;
+  grid-template-columns: 360px minmax(520px, 1fr) 300px;
   height: 100vh;
   padding: 10px;
 }
@@ -102,6 +103,27 @@ input {
   border-radius: 5px;
   min-width: 0;
   padding: 5px 7px;
+}
+
+select {
+  background: #fffcf4;
+  border: 1px solid #aaa295;
+  border-radius: 5px;
+  min-width: 0;
+  padding: 5px 7px;
+}
+
+.resolution-row {
+  align-items: center;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: 96px minmax(0, 1fr);
+  margin-bottom: 10px;
+}
+
+.resolution-row label {
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .validation {
