@@ -3,7 +3,7 @@ schema: refs/schemas/schemaRegistry.yaml
 updated: 2026-06-24
 decisions:
   - id: mvp-internal-map-model
-    status: accepted
+    status: superseded
     date: 2026-06-24
     decision: Use a wrapped equirectangular grid for MVP through projection-neutral world-coordinate helpers.
     rationale: This keeps MVP implementation practical while preserving future resampling paths for spherical, hex, square tile, Civ-like, VTT, Godot, Tiled, and regional map outputs.
@@ -11,6 +11,18 @@ decisions:
       - Generation modules must use coordinate and neighbor abstractions rather than raw image pixels.
       - Polar distortion is acceptable in MVP if documented.
       - A future geodesic or spherical backing model must not require UI or exporter rewrites.
+      - Superseded on 2026-06-25 because QA exposed seam and polar artifacts early enough to change the backing model before public release.
+  - id: global-topology-first
+    status: accepted
+    date: 2026-06-25
+    decision: Generate primary world facts on a global topology before projecting them to equirectangular or other map views.
+    rationale: Seam fixes and polar workarounds indicate that a flat wrapped raster is a poor foundation for long-term planet generation. The project is early enough to choose the correct model first, then optimize.
+    consequences:
+      - Introduce a topology layer with cells, spherical coordinates, adjacency, area weights, and projection sampling APIs.
+      - Prefer a geodesic or cubed-sphere backing model for generation; equirectangular becomes only a renderer/export projection.
+      - Tectonics, climate, hydrology, ice, and biomes must operate on topology neighbors rather than raw x/y pixels.
+      - Existing raster layers may remain as projected preview/export artifacts but must not be the authoritative world model.
+      - Golden seed tests must assert deterministic topology data and projected output separately.
   - id: mvp-resolution
     status: accepted
     date: 2026-06-24

@@ -1,25 +1,32 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Download, FileJson, FolderOpen, Image, Layers, RefreshCw, Save, Shuffle } from 'lucide-react';
-import { createDefaultConfig, defaultParameterRanges, generateProject } from '@world-forge/generator-core';
+import * as THREE from 'three';
+import { createDefaultConfig, generateProject } from '@world-forge/generator-core';
 import { exportSvg, exportWforge, importWforge, projectToJson } from '@world-forge/exporters';
 import { MapMode, cleanGameMapTheme, renderWorldToCanvas } from '@world-forge/renderer';
-import { GenerationConfig, NumericRange, ParameterRanges, WorldProject } from '@world-forge/shared';
+import { GenerationConfig, NumericRange, ParameterRanges, WorldProject, biomeNames, codeToBiome, parameterControlBounds } from '@world-forge/shared';
 import './styles.css';
 
 type RangeKey = keyof ParameterRanges;
+type ViewMode = 'map' | 'globe';
 
 const rangeLabels: Record<RangeKey, string> = {
   systemAgeGy: 'System age',
   oceanPercentage: 'Ocean',
-  averageTemperatureC: 'Temperature',
+  averageTemperatureC: 'Avg temp',
   aridity: 'Aridity',
   seaLevel: 'Sea level',
   axialTiltDeg: 'Axial tilt',
   orbitalEccentricity: 'Eccentricity',
   sizeClass: 'Size',
   moonCount: 'Moons',
-  impactFrequency: 'Impacts'
+  impactFrequency: 'Impacts',
+  plateCount: 'Plates',
+  riverDensity: 'Rivers',
+  continentCount: 'Regions',
+  continentScale: 'Continents',
+  islandDensity: 'Islands'
 };
 
 const defaultSeed = '1001001';
@@ -38,27 +45,87 @@ const previewResolutionOptions = [
   { label: 'Source resolution', width: 0, height: 0 }
 ];
 
+const worldPresets: Array<{ label: string; ranges: Partial<ParameterRanges>; tolerance?: number }> = [
+  {
+    label: 'Earthlike',
+    ranges: {
+      oceanPercentage: { min: 58, max: 72, unit: '%' },
+      aridity: { min: 0.35, max: 0.6 },
+      continentCount: { min: 4, max: 7 },
+      continentScale: { min: 0.5, max: 0.68 },
+      islandDensity: { min: 0.25, max: 0.5 },
+      riverDensity: { min: 1.5, max: 2.4 }
+    }
+  },
+  {
+    label: 'Waterworld',
+    ranges: {
+      oceanPercentage: { min: 78, max: 88, unit: '%' },
+      continentCount: { min: 2, max: 5 },
+      continentScale: { min: 0.18, max: 0.38 },
+      islandDensity: { min: 0.45, max: 0.85 },
+      riverDensity: { min: 0.7, max: 1.5 }
+    }
+  },
+  {
+    label: 'Archipelago',
+    ranges: {
+      oceanPercentage: { min: 64, max: 78, unit: '%' },
+      continentCount: { min: 5, max: 10 },
+      continentScale: { min: 0.16, max: 0.34 },
+      islandDensity: { min: 0.7, max: 1 },
+      riverDensity: { min: 0.8, max: 1.8 }
+    }
+  },
+  {
+    label: 'Desert World',
+    ranges: {
+      oceanPercentage: { min: 28, max: 45, unit: '%' },
+      aridity: { min: 0.68, max: 0.9 },
+      averageTemperatureC: { min: 18, max: 30, unit: 'C' },
+      continentCount: { min: 2, max: 5 },
+      continentScale: { min: 0.48, max: 0.75 },
+      islandDensity: { min: 0.1, max: 0.35 },
+      riverDensity: { min: 0.3, max: 1.1 }
+    },
+    tolerance: 8
+  },
+  {
+    label: 'Pangea',
+    ranges: {
+      oceanPercentage: { min: 48, max: 62, unit: '%' },
+      continentCount: { min: 1, max: 2 },
+      continentScale: { min: 0.78, max: 1 },
+      islandDensity: { min: 0, max: 0.18 },
+      riverDensity: { min: 1.8, max: 3.2 }
+    }
+  }
+];
+
 function App() {
-  const [config, setConfig] = useState<GenerationConfig>(() => createDefaultConfig(defaultSeed));
-  const [project, setProject] = useState<WorldProject>(() => generateProject(createDefaultConfig(defaultSeed)));
+  const defaultHighConfig = () => createDefaultConfig(defaultSeed, { width: 2048, height: 1024 });
+  const [config, setConfig] = useState<GenerationConfig>(() => defaultHighConfig());
+  const [project, setProject] = useState<WorldProject>(() => generateProject(defaultHighConfig()));
   const [previewResolution, setPreviewResolution] = useState(previewResolutionOptions[1]);
   const [exportResolution, setExportResolution] = useState(resolutionOptions[1]);
   const [showPlates, setShowPlates] = useState(false);
   const [showRivers, setShowRivers] = useState(true);
   const [mapMode, setMapMode] = useState<MapMode>('biomes');
+  const [viewMode, setViewMode] = useState<ViewMode>('map');
   const [isGenerating, setIsGenerating] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
-    if (!canvasRef.current) return;
+    if (!canvasRef.current || viewMode !== 'map') return;
+    const showRiverOverlay = showRivers && mapMode !== 'elevation' && mapMode !== 'heightmap';
     renderWorldToCanvas(canvasRef.current, project, cleanGameMapTheme, {
-      rivers: showRivers,
+      rivers: showRiverOverlay,
       plates: showPlates,
       heightmap: mapMode === 'elevation',
       mode: mapMode,
       targetResolution: previewResolution.width > 0 ? previewResolution : undefined
     });
-  }, [mapMode, previewResolution, project, showPlates, showRivers]);
+  }, [mapMode, previewResolution, project, showPlates, showRivers, viewMode]);
 
   const invalidRanges = useMemo(() => {
     return Object.entries(config.parameterRanges)
@@ -98,6 +165,22 @@ function App() {
     }));
   };
 
+  const applyPreset = (label: string) => {
+    const preset = worldPresets.find((option) => option.label === label);
+    if (!preset) return;
+    setConfig((current) => ({
+      ...current,
+      parameterRanges: {
+        ...current.parameterRanges,
+        ...preset.ranges
+      },
+      selectedValues: {
+        ...current.selectedValues,
+        oceanTolerancePercentagePoints: preset.tolerance ?? current.selectedValues?.oceanTolerancePercentagePoints ?? 5
+      }
+    }));
+  };
+
   const randomizeSeed = () => {
     const seed = String(Math.floor(1000000 + Math.random() * 9000000));
     const next = { ...config, seed };
@@ -107,8 +190,9 @@ function App() {
 
   const downloadPng = () => {
     const canvas = document.createElement('canvas');
+    const showRiverOverlay = showRivers && mapMode !== 'elevation' && mapMode !== 'heightmap';
     renderWorldToCanvas(canvas, project, cleanGameMapTheme, {
-      rivers: showRivers,
+      rivers: showRiverOverlay,
       plates: showPlates,
       heightmap: mapMode === 'elevation',
       mode: mapMode,
@@ -184,6 +268,17 @@ function App() {
           </select>
         </div>
         <div className="resolution-row">
+          <label htmlFor="world-preset">Preset</label>
+          <select id="world-preset" defaultValue="" onChange={(event) => applyPreset(event.target.value)}>
+            <option value="" disabled>Choose preset</option>
+            {worldPresets.map((preset) => (
+              <option key={preset.label} value={preset.label}>
+                {preset.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="resolution-row">
           <label htmlFor="preview-resolution">Preview</label>
           <select
             id="preview-resolution"
@@ -235,7 +330,7 @@ function App() {
               key={key}
               label={rangeLabels[key]}
               range={config.parameterRanges[key]}
-              bounds={defaultParameterRanges[key]}
+              bounds={parameterControlBounds[key]}
               onMin={(value) => updateRange(key, 'min', value)}
               onMax={(value) => updateRange(key, 'max', value)}
             />
@@ -246,12 +341,15 @@ function App() {
       <section className="map-pane" aria-label="Generated world map">
         <div className="map-actions">
           <div className="layer-toggles">
+            <label><input type="radio" name="view-mode" checked={viewMode === 'map'} onChange={() => setViewMode('map')} /> Map</label>
+            <label><input type="radio" name="view-mode" checked={viewMode === 'globe'} onChange={() => setViewMode('globe')} /> Globe</label>
             <label><input type="checkbox" checked={showRivers} onChange={(event) => setShowRivers(event.target.checked)} /> Rivers</label>
             <label><input type="checkbox" checked={showPlates} onChange={(event) => setShowPlates(event.target.checked)} /> Plates</label>
             <label htmlFor="map-mode">Filter</label>
             <select id="map-mode" value={mapMode} onChange={(event) => setMapMode(event.target.value as MapMode)}>
               <option value="biomes">Biomes</option>
               <option value="elevation">Elevation</option>
+              <option value="heightmap">Heightmap</option>
               <option value="temperature">Temperature</option>
               <option value="rainfall">Rainfall</option>
               <option value="wind">Wind</option>
@@ -270,8 +368,13 @@ function App() {
           </div>
         </div>
         <div className="canvas-wrap">
-          <canvas ref={canvasRef} aria-label={`Generated map for ${project.projectName}`} />
+          {viewMode === 'map' ? (
+            <canvas ref={canvasRef} aria-label={`Generated map for ${project.projectName}`} />
+          ) : (
+            <GlobeViewer project={project} mapMode={mapMode} showRivers={showRivers} showPlates={showPlates} />
+          )}
         </div>
+        {mapMode === 'biomes' && viewMode === 'map' && <BiomeLegend />}
       </section>
 
       <aside className="summary" aria-label="World summary">
@@ -328,6 +431,357 @@ function App() {
   );
 }
 
+function GlobeViewer({ project, mapMode, showRivers, showPlates }: { project: WorldProject; mapMode: MapMode; showRivers: boolean; showPlates: boolean }) {
+  const hostRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setClearColor(0x000000, 0);
+    host.replaceChildren(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 20);
+    camera.position.set(0, 0.12, 3.15);
+
+    const texture = new THREE.CanvasTexture(createGlobeTexture(project, mapMode, showRivers, showPlates));
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+
+    const geometry = createGlobeGeometry(project);
+    const material = new THREE.MeshStandardMaterial({
+      map: texture,
+      roughness: 0.86,
+      metalness: 0.02
+    });
+    const globe = new THREE.Mesh(geometry, material);
+    globe.rotation.y = -0.55;
+    scene.add(globe);
+
+    const ocean = new THREE.Mesh(
+      new THREE.SphereGeometry(1.0025, 160, 80),
+      new THREE.MeshPhysicalMaterial({
+        color: 0x2f7fa6,
+        transparent: true,
+        opacity: 0.82,
+        roughness: 0.18,
+        metalness: 0,
+        transmission: 0,
+        depthWrite: true
+      })
+    );
+    scene.add(ocean);
+
+    const atmosphere = new THREE.Mesh(
+      new THREE.SphereGeometry(1.018, 96, 48),
+      new THREE.MeshBasicMaterial({ color: 0x7fc7df, transparent: true, opacity: 0.08, depthWrite: false })
+    );
+    scene.add(atmosphere);
+
+    scene.add(new THREE.AmbientLight(0xc7d7df, 1.65));
+    const sun = new THREE.DirectionalLight(0xfff1d0, 2.2);
+    sun.position.set(-2.8, 2.4, 3.2);
+    scene.add(sun);
+
+    const drag = { active: false, x: 0, y: 0, vx: 0, vy: 0 };
+    const onPointerDown = (event: PointerEvent) => {
+      drag.active = true;
+      drag.x = event.clientX;
+      drag.y = event.clientY;
+      renderer.domElement.setPointerCapture(event.pointerId);
+    };
+    const onPointerMove = (event: PointerEvent) => {
+      if (!drag.active) return;
+      const dx = event.clientX - drag.x;
+      const dy = event.clientY - drag.y;
+      drag.x = event.clientX;
+      drag.y = event.clientY;
+      drag.vx = dx * 0.006;
+      drag.vy = dy * 0.004;
+      globe.rotation.y += drag.vx;
+      globe.rotation.x = clampGlobeTilt(globe.rotation.x + drag.vy);
+    };
+    const onPointerUp = (event: PointerEvent) => {
+      drag.active = false;
+      renderer.domElement.releasePointerCapture(event.pointerId);
+    };
+    renderer.domElement.addEventListener('pointerdown', onPointerDown);
+    renderer.domElement.addEventListener('pointermove', onPointerMove);
+    renderer.domElement.addEventListener('pointerup', onPointerUp);
+    renderer.domElement.addEventListener('pointercancel', onPointerUp);
+
+    const resize = () => {
+      const rect = host.getBoundingClientRect();
+      const width = Math.max(1, Math.floor(rect.width));
+      const height = Math.max(1, Math.floor(rect.height));
+      renderer.setSize(width, height, false);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+    };
+    const resizeObserver = new ResizeObserver(resize);
+    resizeObserver.observe(host);
+    resize();
+
+    let frame = 0;
+    let disposed = false;
+    const animate = () => {
+      if (disposed) return;
+      frame = requestAnimationFrame(animate);
+      if (!drag.active) {
+        globe.rotation.y += 0.0017 + drag.vx * 0.02;
+        globe.rotation.x = clampGlobeTilt(globe.rotation.x + drag.vy * 0.018);
+        drag.vx *= 0.94;
+        drag.vy *= 0.9;
+      }
+      ocean.rotation.copy(globe.rotation);
+      atmosphere.rotation.copy(globe.rotation);
+      renderer.render(scene, camera);
+    };
+    animate();
+
+    return () => {
+      disposed = true;
+      cancelAnimationFrame(frame);
+      resizeObserver.disconnect();
+      renderer.domElement.removeEventListener('pointerdown', onPointerDown);
+      renderer.domElement.removeEventListener('pointermove', onPointerMove);
+      renderer.domElement.removeEventListener('pointerup', onPointerUp);
+      renderer.domElement.removeEventListener('pointercancel', onPointerUp);
+      geometry.dispose();
+      material.dispose();
+      texture.dispose();
+      ocean.geometry.dispose();
+      (ocean.material as THREE.Material).dispose();
+      atmosphere.geometry.dispose();
+      (atmosphere.material as THREE.Material).dispose();
+      renderer.dispose();
+      host.replaceChildren();
+    };
+  }, [mapMode, project, showPlates, showRivers]);
+
+  return <div ref={hostRef} className="globe-viewer" aria-label={`Generated globe for ${project.projectName}`} />;
+}
+
+function createGlobeTexture(project: WorldProject, mapMode: MapMode, showRivers: boolean, showPlates: boolean): HTMLCanvasElement {
+  if (mapMode === 'biomes') return createGlobeAlbedoTexture(project, showRivers, showPlates);
+  const canvas = document.createElement('canvas');
+  renderWorldToCanvas(canvas, project, cleanGameMapTheme, {
+    rivers: showRivers && mapMode !== 'elevation' && mapMode !== 'heightmap',
+    plates: showPlates,
+    heightmap: mapMode === 'elevation',
+    mode: mapMode,
+    targetResolution: { width: 2048, height: 1024 }
+  });
+  return canvas;
+}
+
+function createGlobeAlbedoTexture(project: WorldProject, showRivers: boolean, showPlates: boolean): HTMLCanvasElement {
+  const world = project.primaryWorld;
+  const width = 2048;
+  const height = 1024;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return canvas;
+  const image = ctx.createImageData(width, height);
+  const [lowElevation, highElevation] = rasterPercentileRange(world.layers.elevation, 0.02, 0.98);
+  const sourceWidth = world.mapModel.resolution.width;
+  const sourceHeight = world.mapModel.resolution.height;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const sourceX = Math.min(sourceWidth - 1, Math.floor((x / width) * sourceWidth));
+      const sourceY = Math.min(sourceHeight - 1, Math.floor((y / height) * sourceHeight));
+      const index = sourceY * sourceWidth + sourceX;
+      const color = globeAlbedoColor(project, index, sourceX, sourceY, lowElevation, highElevation);
+      const offset = (y * width + x) * 4;
+      image.data[offset] = color[0];
+      image.data[offset + 1] = color[1];
+      image.data[offset + 2] = color[2];
+      image.data[offset + 3] = 255;
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+
+  if (showRivers) drawGlobeTextureRivers(ctx, world, width, height);
+  if (showPlates) drawGlobeTexturePlateEdges(ctx, world, width, height);
+  return canvas;
+}
+
+function globeAlbedoColor(project: WorldProject, index: number, x: number, y: number, lowElevation: number, highElevation: number): [number, number, number] {
+  const world = project.primaryWorld;
+  const elevation = world.layers.elevation[index];
+  const elevation01 = clamp01((elevation - lowElevation) / Math.max(0.0001, highElevation - lowElevation));
+  const water = world.layers.water[index] === 1;
+  const wetness = world.layers.wetness[index];
+  const grain = deterministicGrain(x, y, project.seed);
+  if (water) {
+    const depth = clamp01((world.seaLevel - elevation) / 0.42);
+    const shore = clamp01(1 - depth * 3.2);
+    const base = mixRgb([34, 105, 136], [18, 61, 96], depth);
+    return mixRgb(base, [98, 164, 172], shore * 0.42);
+  }
+
+  const biome = codeToBiome(world.layers.biomes[index]);
+  let color: [number, number, number];
+  if (biome === 'desert') color = [203, 181, 105];
+  else if (biome === 'grassland') color = [114, 153, 86];
+  else if (biome === 'forest') color = [59, 122, 72];
+  else if (biome === 'rainforest') color = [35, 100, 69];
+  else if (biome === 'tundra') color = [162, 179, 154];
+  else if (biome === 'wetland') color = [82, 132, 107];
+  else if (biome === 'mountain') color = [129, 124, 112];
+  else color = [126, 154, 91];
+
+  const slope = globeSlopeSignal(world, index);
+  const rock = smoothStep01(0.08, 0.34, slope) * smoothStep01(0.36, 0.82, elevation01);
+  color = mixRgb(color, [112, 107, 96], rock * 0.65);
+  if (world.layers.ice[index]) color = mixRgb(color, [239, 245, 241], elevation01 > 0.6 ? 0.86 : 0.62);
+  const shade = 0.92 + elevation01 * 0.1 + (grain - 0.5) * (biome === 'desert' ? 0.08 : 0.055) + wetness * 0.025;
+  return scaleRgb(color, shade);
+}
+
+function drawGlobeTextureRivers(ctx: CanvasRenderingContext2D, world: WorldProject['primaryWorld'], textureWidth: number, textureHeight: number): void {
+  const scaleX = textureWidth / world.mapModel.resolution.width;
+  const scaleY = textureHeight / world.mapModel.resolution.height;
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = 'rgba(198, 238, 245, 0.78)';
+  ctx.lineWidth = Math.max(1, textureWidth / 1600);
+  for (const river of world.rivers) {
+    if (river.path.length < 4) continue;
+    ctx.beginPath();
+    let started = false;
+    let previousX = 0;
+    for (const cell of river.path) {
+      const x = (cell % world.mapModel.resolution.width) * scaleX;
+      const y = Math.floor(cell / world.mapModel.resolution.width) * scaleY;
+      if (!started || Math.abs(x - previousX) > textureWidth / 2) {
+        ctx.moveTo(x, y);
+        started = true;
+      } else {
+        ctx.lineTo(x, y);
+      }
+      previousX = x;
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawGlobeTexturePlateEdges(ctx: CanvasRenderingContext2D, world: WorldProject['primaryWorld'], textureWidth: number, textureHeight: number): void {
+  const sourceWidth = world.mapModel.resolution.width;
+  const sourceHeight = world.mapModel.resolution.height;
+  const image = ctx.getImageData(0, 0, textureWidth, textureHeight);
+  for (let y = 1; y < textureHeight; y += 1) {
+    for (let x = 0; x < textureWidth; x += 1) {
+      const sx = Math.min(sourceWidth - 1, Math.floor((x / textureWidth) * sourceWidth));
+      const sy = Math.min(sourceHeight - 1, Math.floor((y / textureHeight) * sourceHeight));
+      const index = sy * sourceWidth + sx;
+      const right = sy * sourceWidth + ((sx + 1) % sourceWidth);
+      const up = Math.max(0, sy - 1) * sourceWidth + sx;
+      if (world.layers.plates[index] === world.layers.plates[right] && world.layers.plates[index] === world.layers.plates[up]) continue;
+      const offset = (y * textureWidth + x) * 4;
+      image.data[offset] = Math.round(image.data[offset] * 0.78);
+      image.data[offset + 1] = Math.round(image.data[offset + 1] * 0.72);
+      image.data[offset + 2] = Math.round(image.data[offset + 2] * 0.66);
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+}
+
+function createGlobeGeometry(project: WorldProject): THREE.SphereGeometry {
+  const geometry = new THREE.SphereGeometry(1, 160, 80);
+  const positions = geometry.attributes.position as THREE.BufferAttribute;
+  const world = project.primaryWorld;
+  const { width, height } = world.mapModel.resolution;
+  const [, highElevation] = rasterPercentileRange(world.layers.elevation, 0.02, 0.98);
+  const landRange = Math.max(0.0001, highElevation - world.seaLevel);
+  const vertex = new THREE.Vector3();
+
+  for (let i = 0; i < positions.count; i += 1) {
+    vertex.fromBufferAttribute(positions, i).normalize();
+    const longitude = Math.atan2(vertex.z, vertex.x);
+    const latitude = Math.asin(vertex.y);
+    const x = Math.max(0, Math.min(width - 1, Math.floor(((longitude + Math.PI) / (Math.PI * 2)) * width)));
+    const y = Math.max(0, Math.min(height - 1, Math.floor((0.5 - latitude / Math.PI) * height)));
+    const index = y * width + x;
+    const elevation = world.layers.elevation[index];
+    const land01 = clamp01((elevation - world.seaLevel) / landRange);
+    const shoreLift = world.layers.water[index] === 1 ? 0 : 0.0025;
+    const radius = world.layers.water[index] === 1 ? 0.982 : 1 + shoreLift + land01 * 0.026;
+    positions.setXYZ(i, vertex.x * radius, vertex.y * radius, vertex.z * radius);
+  }
+  positions.needsUpdate = true;
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function rasterPercentileRange(values: Float32Array, lowPercentile: number, highPercentile: number): [number, number] {
+  const sorted = Array.from(values).sort((a, b) => a - b);
+  const low = sorted[Math.max(0, Math.min(sorted.length - 1, Math.floor(sorted.length * lowPercentile)))];
+  const high = sorted[Math.max(0, Math.min(sorted.length - 1, Math.floor(sorted.length * highPercentile)))];
+  return low === high ? [sorted[0] ?? 0, sorted[sorted.length - 1] ?? 1] : [low, high];
+}
+
+function globeSlopeSignal(world: WorldProject['primaryWorld'], index: number): number {
+  const { width, height } = world.mapModel.resolution;
+  const x = index % width;
+  const y = Math.floor(index / width);
+  const current = world.layers.elevation[index];
+  const left = world.layers.elevation[y * width + ((x - 1 + width) % width)];
+  const right = world.layers.elevation[y * width + ((x + 1) % width)];
+  const up = world.layers.elevation[Math.max(0, y - 1) * width + x];
+  const down = world.layers.elevation[Math.min(height - 1, y + 1) * width + x];
+  return Math.abs(current - left) + Math.abs(current - right) + Math.abs(current - up) + Math.abs(current - down);
+}
+
+function deterministicGrain(x: number, y: number, seed: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i += 1) h = Math.imul(h ^ seed.charCodeAt(i), 16777619);
+  h ^= Math.imul(x + 374761393, 668265263);
+  h ^= Math.imul(y + 2246822519, 3266489917);
+  h = Math.imul(h ^ (h >>> 15), 2246822507);
+  return ((h ^ (h >>> 13)) >>> 0) / 4294967295;
+}
+
+function mixRgb(a: [number, number, number], b: [number, number, number], t: number): [number, number, number] {
+  const amount = clamp01(t);
+  return [
+    Math.round(a[0] + (b[0] - a[0]) * amount),
+    Math.round(a[1] + (b[1] - a[1]) * amount),
+    Math.round(a[2] + (b[2] - a[2]) * amount)
+  ];
+}
+
+function scaleRgb(color: [number, number, number], scale: number): [number, number, number] {
+  return [
+    Math.max(0, Math.min(255, Math.round(color[0] * scale))),
+    Math.max(0, Math.min(255, Math.round(color[1] * scale))),
+    Math.max(0, Math.min(255, Math.round(color[2] * scale)))
+  ];
+}
+
+function smoothStep01(edge0: number, edge1: number, value: number): number {
+  const t = clamp01((value - edge0) / (edge1 - edge0));
+  return t * t * (3 - 2 * t);
+}
+
+function clampGlobeTilt(value: number): number {
+  return Math.max(-1.1, Math.min(1.1, value));
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
 function RangeControl({
   label,
   range,
@@ -341,13 +795,21 @@ function RangeControl({
   onMin: (value: number) => void;
   onMax: (value: number) => void;
 }) {
-  const step = bounds.unit === '%' || bounds.unit === 'deg' || label === 'Moons' ? 1 : 0.01;
+  const step = bounds.unit === '%' || bounds.unit === 'deg' || label === 'Moons' || label === 'Plates' || label === 'Regions' ? 1 : 0.01;
   const min = Math.min(range.min, range.max);
   const max = Math.max(range.min, range.max);
+  const minPercent = ((min - bounds.min) / (bounds.max - bounds.min)) * 100;
+  const maxPercent = ((max - bounds.min) / (bounds.max - bounds.min)) * 100;
   return (
     <div className="range-control">
       <span>{label}</span>
-      <div className="dual-slider">
+      <div
+        className="range-slider"
+        style={{
+          '--range-min': `${minPercent}%`,
+          '--range-max': `${maxPercent}%`
+        } as React.CSSProperties}
+      >
         <input
           aria-label={`${label} minimum`}
           max={bounds.max}
@@ -384,6 +846,24 @@ function Metric({ label, value, status }: { label: string; value: string; status
       <strong>{value}</strong>
     </div>
   );
+}
+
+function BiomeLegend() {
+  return (
+    <div className="map-legend" aria-label="Biome color legend">
+      {biomeNames.map((biome) => (
+        <span key={biome}>
+          <i style={{ background: biomeLegendColor(biome) }} />
+          {biome.replace('_', ' ')}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function biomeLegendColor(biome: string): string {
+  if (biome === 'ice_cap') return cleanGameMapTheme.colors.ice;
+  return cleanGameMapTheme.colors[biome] ?? cleanGameMapTheme.colors.grassland;
 }
 
 function downloadBlob(blob: Blob, filename: string) {

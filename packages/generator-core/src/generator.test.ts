@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createDefaultConfig, generateProject } from './index';
 import { exportSvg, exportWforge, importWforge, projectToJson } from '@world-forge/exporters';
+import { buildCubedSphereTopology } from '../../shared/src/index';
 
 const seeds = [
   'earthlike-default-001',
@@ -45,6 +46,67 @@ describe('world generation MVP invariants', () => {
     expect(layerHasSignal(project.primaryWorld.layers.windY)).toBe(true);
     expect(layerHasSignal(project.primaryWorld.layers.currentX)).toBe(true);
     expect(layerHasSignal(project.primaryWorld.layers.currentY)).toBe(true);
+  });
+
+  it('generates and persists authoritative topology layers', async () => {
+    const project = generateProject(createDefaultConfig('topology-smoke-001', { width: 128, height: 64 }));
+    expect(project.primaryWorld.topology.kind).toBe('cubed-sphere');
+    expect(project.primaryWorld.topology.cellCount).toBeGreaterThan(0);
+    expect(project.primaryWorld.topologyLayers.elevation.length).toBe(project.primaryWorld.topology.cellCount);
+    expect(project.primaryWorld.topologyLayers.plates.length).toBe(project.primaryWorld.topology.cellCount);
+
+    const blob = await exportWforge(project);
+    const file = new File([blob], 'topology-smoke-001.wforge');
+    const loaded = await importWforge(file);
+
+    expect(loaded.primaryWorld.topology.kind).toBe('cubed-sphere');
+    expect(loaded.primaryWorld.topologyLayers.elevation.length).toBe(project.primaryWorld.topology.cellCount);
+    expect(loaded.primaryWorld.topologyLayers.plates.length).toBe(project.primaryWorld.topology.cellCount);
+  });
+
+  it('uses plate count as topology plate count', () => {
+    const config = createDefaultConfig('topology-plates-001', { width: 128, height: 64 });
+    config.selectedValues = { plateCount: 14 };
+    const project = generateProject(config);
+    expect(project.primaryWorld.plates.length).toBe(14);
+    expect(Math.max(...Array.from(project.primaryWorld.topologyLayers.plates))).toBeLessThan(14);
+  });
+
+  it('forms multiple continent-scale landmasses for the default app seed', () => {
+    const project = generateProject(createDefaultConfig('1001001', { width: 256, height: 128 }));
+    const components = landComponentSizes(project.primaryWorld.topologyLayers.water, project.primaryWorld.topology.resolution);
+    const landCells = components.reduce((sum, count) => sum + count, 0);
+    const largest = components[0] / landCells;
+    const substantial = components.filter((count) => count / landCells > 0.04).length;
+
+    expect(largest).toBeLessThan(0.7);
+    expect(substantial).toBeGreaterThanOrEqual(3);
+  });
+
+  it('uses continent count to vary landmass component count', () => {
+    const fewConfig = createDefaultConfig('continent-count-001', { width: 256, height: 128 });
+    fewConfig.selectedValues = { continentCount: 2, continentScale: 0.72, islandDensity: 0.15 };
+    const manyConfig = createDefaultConfig('continent-count-001', { width: 256, height: 128 });
+    manyConfig.selectedValues = { continentCount: 8, continentScale: 0.42, islandDensity: 0.35 };
+
+    const few = generateProject(fewConfig);
+    const many = generateProject(manyConfig);
+    const fewComponents = substantialLandComponents(few.primaryWorld.topologyLayers.water, few.primaryWorld.topology.resolution);
+    const manyComponents = substantialLandComponents(many.primaryWorld.topologyLayers.water, many.primaryWorld.topology.resolution);
+    const fewLargest = largestLandComponentShare(few.primaryWorld.topologyLayers.water, few.primaryWorld.topology.resolution);
+    const manyLargest = largestLandComponentShare(many.primaryWorld.topologyLayers.water, many.primaryWorld.topology.resolution);
+
+    expect(manyComponents).toBeGreaterThanOrEqual(fewComponents);
+    expect(manyLargest).toBeLessThan(fewLargest);
+  });
+
+  it('routes topology rivers to ocean or visible lake termini', () => {
+    const project = generateProject(createDefaultConfig('river-terminus-001', { width: 256, height: 128 }));
+    const rivers = project.primaryWorld.rivers;
+    expect(rivers.length).toBeGreaterThan(0);
+    expect(rivers.every((river) => river.terminus === 'ocean' || river.terminus === 'lake' || river.terminus === 'wetland')).toBe(true);
+    expect(project.primaryWorld.topologyLayers.river.some((value) => value > 0.08)).toBe(true);
+    expect(project.primaryWorld.topologyLayers.lakes.some((value) => value === 1)).toBe(true);
   });
 
   it('uses world age to change impact and weathering terrain evolution', () => {
@@ -104,4 +166,43 @@ function hashLayer(layer: Float32Array): string {
 
 function layerHasSignal(layer: Float32Array): boolean {
   return layer.some((value) => Math.abs(value) > 0.01);
+}
+
+function landComponentSizes(water: Uint8Array, topologyResolution: number): number[] {
+  const topology = buildCubedSphereTopology(topologyResolution);
+  const seen = new Uint8Array(water.length);
+  const components: number[] = [];
+  for (let cell = 0; cell < water.length; cell += 1) {
+    if (water[cell] === 1 || seen[cell]) continue;
+    let count = 0;
+    const stack = [cell];
+    seen[cell] = 1;
+    while (stack.length) {
+      const current = stack.pop()!;
+      count += 1;
+      for (let i = 0; i < 4; i += 1) {
+        const neighbor = topology.neighbors[current * 4 + i];
+        if (neighbor >= 0 && water[neighbor] === 0 && !seen[neighbor]) {
+          seen[neighbor] = 1;
+          stack.push(neighbor);
+        }
+      }
+    }
+    components.push(count);
+  }
+  return components.sort((a, b) => b - a);
+}
+
+function substantialLandComponents(water: Uint8Array, topologyResolution: number): number {
+  const components = landComponentSizes(water, topologyResolution);
+  const landCells = components.reduce((sum, count) => sum + count, 0);
+  if (landCells === 0) return 0;
+  return components.filter((count) => count / landCells > 0.04).length;
+}
+
+function largestLandComponentShare(water: Uint8Array, topologyResolution: number): number {
+  const components = landComponentSizes(water, topologyResolution);
+  const landCells = components.reduce((sum, count) => sum + count, 0);
+  if (landCells === 0) return 0;
+  return components[0] / landCells;
 }

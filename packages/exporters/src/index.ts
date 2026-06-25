@@ -2,6 +2,8 @@ import JSZip from 'jszip';
 import {
   MapLayers,
   SerializableLayer,
+  SerializableTopologyLayer,
+  TopologyLayers,
   WorldProject,
   biomeNames
 } from '@world-forge/shared';
@@ -27,11 +29,15 @@ export async function exportWforge(project: WorldProject): Promise<Blob> {
     appVersion: project.appVersion,
     generatorVersion: project.generatorVersion,
     schemaVersion: 1,
-    layerFiles: Object.keys(project.primaryWorld.layers).map((name) => `layers/${name}.json`)
+    layerFiles: Object.keys(project.primaryWorld.layers).map((name) => `layers/${name}.json`),
+    topologyLayerFiles: Object.keys(project.primaryWorld.topologyLayers ?? {}).map((name) => `topology-layers/${name}.json`)
   }, null, 2));
   zip.file('project.json', JSON.stringify(serialized, null, 2));
   for (const layer of serialized.primaryWorld.layers) {
     zip.file(`layers/${layer.layerType}.json`, JSON.stringify(layer));
+  }
+  for (const layer of serialized.primaryWorld.topologyLayers ?? []) {
+    zip.file(`topology-layers/${layer.layerType}.json`, JSON.stringify(layer));
   }
   return zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
 }
@@ -50,6 +56,7 @@ export function serializeProject(project: WorldProject) {
     primaryWorld: {
       ...project.primaryWorld,
       layers: serializeLayers(project.primaryWorld.layers, project.primaryWorld.mapModel.resolution, project.primaryWorld.mapModel.projection),
+      topologyLayers: serializeTopologyLayers(project.primaryWorld.topologyLayers, project.primaryWorld.topology),
       biomeLegend: biomeNames
     }
   };
@@ -67,11 +74,21 @@ export function deserializeProject(serialized: any): WorldProject {
       layers[layer.layerType] = new Uint8Array(layer.data) as never;
     }
   }
+  const topologyLayerEntries = (serialized.primaryWorld.topologyLayers ?? []) as SerializableTopologyLayer[];
+  const topologyLayers = {} as TopologyLayers;
+  for (const layer of topologyLayerEntries) {
+    if (layer.dataEncoding === 'float32-array') {
+      topologyLayers[layer.layerType] = new Float32Array(layer.data) as never;
+    } else {
+      topologyLayers[layer.layerType] = layer.dataEncoding === 'uint16-array' ? new Uint16Array(layer.data) as never : new Uint8Array(layer.data) as never;
+    }
+  }
   return {
     ...serialized,
     primaryWorld: {
       ...serialized.primaryWorld,
-      layers
+      layers,
+      topologyLayers
     }
   } as WorldProject;
 }
@@ -85,6 +102,25 @@ function serializeLayers(layers: MapLayers, resolution: WorldProject['primaryWor
       layerType: layerType as keyof MapLayers,
       resolution,
       projection,
+      dataEncoding: data instanceof Float32Array ? 'float32-array' : data instanceof Uint16Array ? 'uint16-array' : 'uint8-array',
+      minValue,
+      maxValue,
+      units: unitsForLayer(layerType),
+      data: values
+    };
+  });
+}
+
+function serializeTopologyLayers(layers: TopologyLayers, topology: WorldProject['primaryWorld']['topology']): SerializableTopologyLayer[] {
+  if (!layers) return [];
+  return Object.entries(layers).map(([layerType, data]) => {
+    const values = Array.from(data as Float32Array | Uint16Array);
+    const [minValue, maxValue] = minMax(values);
+    return {
+      layerId: `primary-topology-${layerType}`,
+      layerType: layerType as keyof TopologyLayers,
+      topologyKind: topology.kind,
+      topologyResolution: topology.resolution,
       dataEncoding: data instanceof Float32Array ? 'float32-array' : data instanceof Uint16Array ? 'uint16-array' : 'uint8-array',
       minValue,
       maxValue,

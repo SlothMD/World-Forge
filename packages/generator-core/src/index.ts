@@ -1,5 +1,6 @@
 import {
   Biome,
+  CubedSphereTopology,
   GenerationConfig,
   GenerationDiagnostics,
   Moon,
@@ -13,12 +14,15 @@ import {
   WorldProject,
   biomeNames,
   biomeToCode,
+  buildCubedSphereTopology,
   clamp,
   codeToBiome,
   createDefaultConfig,
+  cubedSphereCellForLonLat,
   defaultParameterRanges,
   layerIndex,
   lerp,
+  normalizeValue,
   wrapX
 } from '@world-forge/shared';
 import { SeededRandom } from './random';
@@ -30,6 +34,57 @@ const generatorVersion = '0.1.0-mvp';
 type DiagnosticsRecorder = {
   measure<T>(name: string, fn: () => T): T;
   snapshot(): GenerationDiagnostics;
+};
+
+type TopologyPlate = Plate & {
+  centerCell: number;
+  centerX3: number;
+  centerY3: number;
+  centerZ3: number;
+  age: number;
+  density: number;
+};
+
+type CrustFields = {
+  continental: Float32Array;
+  thickness: Float32Array;
+  shelf: Float32Array;
+};
+
+type PrimordialFields = {
+  elevation: Float32Array;
+  crustAge: Float32Array;
+  crustThickness: Float32Array;
+  basin: Float32Array;
+  impact: Float32Array;
+};
+
+type ContinentRegion = {
+  x: number;
+  y: number;
+  z: number;
+  scale: number;
+  elongation: number;
+  axisX: number;
+  axisY: number;
+  axisZ: number;
+  lobes: Array<{
+    x: number;
+    y: number;
+    z: number;
+    radius: number;
+    weight: number;
+  }>;
+};
+
+type TopologyRiverPath = {
+  path: number[];
+  terminus: River['terminus'];
+};
+
+type HeapNode = {
+  cell: number;
+  priority: number;
 };
 
 function createDiagnosticsRecorder(): DiagnosticsRecorder {
@@ -108,6 +163,11 @@ function selectValues(config: GenerationConfig, rng: SeededRandom): SelectedValu
     sizeClass: round(pick('sizeClass'), 2),
     moonCount: Math.max(0, Math.round(pick('moonCount'))),
     impactFrequency: round(pick('impactFrequency', 1), 2),
+    plateCount: Math.max(1, Math.round(pick('plateCount', 20))),
+    riverDensity: round(pick('riverDensity', 1.6), 2),
+    continentCount: Math.max(1, Math.round(pick('continentCount', 5))),
+    continentScale: round(pick('continentScale', 0.55), 2),
+    islandDensity: round(pick('islandDensity', 0.4), 2),
     oceanTolerancePercentagePoints: round(pick('oceanTolerancePercentagePoints', 5), 1)
   };
 }
@@ -190,48 +250,61 @@ function generatePrimaryWorld(
   const windY = new Float32Array(cellCount);
   const currentX = new Float32Array(cellCount);
   const currentY = new Float32Array(cellCount);
-  const plates = createPlates(width, height, rng);
   const primaryBody = solarSystem.bodies.find((body) => body.isPrimaryWorld);
   const moons = primaryBody?.moons ?? [];
   const tideInfluence = round(clamp(moons.reduce((sum, moon) => sum + moon.tideInfluence, 0), 0, 2), 2);
+  const topologyResolution = Math.max(16, Math.round(Math.min(width, height) / 2));
+  const topology = diagnostics.measure('topology.build', () => buildCubedSphereTopology(topologyResolution));
+  const topologyElevation = new Float32Array(topology.cellCount);
+  const topologyPlates = new Uint16Array(topology.cellCount);
+  const topologyWater = new Uint8Array(topology.cellCount);
+  const topologyTemperature = new Float32Array(topology.cellCount);
+  const topologyWetness = new Float32Array(topology.cellCount);
+  const topologyBiomes = new Uint8Array(topology.cellCount);
+  const topologyIce = new Uint8Array(topology.cellCount);
+  const topologyRiver = new Float32Array(topology.cellCount);
+  const topologyLakes = new Uint8Array(topology.cellCount);
+  const primordial = diagnostics.measure('topology.terrain.primordial', () => generatePrimordialFields(topology, values, rng));
+  const topologyPlateData = diagnostics.measure('topology.plates.create', () => createTopologyPlates(topology, values.plateCount, rng, primordial));
 
-  diagnostics.measure('plates.assign', () => assignPlateLayer(platesLayer, plates, width, height));
-  diagnostics.measure('terrain.elevation', () => generateElevation(elevation, platesLayer, plates, width, height, rng));
-  diagnostics.measure('terrain.aging', () => applyTerrainAging(elevation, width, height, values.systemAgeGy, values.impactFrequency, rng, diagnostics));
-  let seaLevel = diagnostics.measure('water.sea-level.initial', () => findSeaLevelForOceanTarget(elevation, values.oceanPercentage, values.seaLevel));
-  diagnostics.measure('terrain.coastal-shelves', () => shapeCoastalShelves(elevation, width, height, seaLevel, clamp(values.systemAgeGy / 10)));
-  seaLevel = diagnostics.measure('water.sea-level.shelf', () => findSeaLevelForOceanTarget(elevation, values.oceanPercentage, values.seaLevel));
-  diagnostics.measure('water.mask.initial', () => {
-    assignWaterMask(water, elevation, seaLevel);
-    smoothWaterMask(water, elevation, seaLevel, width, height);
-  });
-  diagnostics.measure('climate.initial', () => generateClimate(temperature, wetness, elevation, water, values, tideInfluence, width, height));
-  diagnostics.measure('flow.initial', () => generateAtmosphericAndOceanFlow(windX, windY, currentX, currentY, elevation, water, temperature, values, width, height));
-  diagnostics.measure('terrain.glaciation', () => applyGlaciationCycles(elevation, ice, temperature, wetness, windX, windY, width, height, values, rng));
-  seaLevel = diagnostics.measure('water.sea-level.final', () => findSeaLevelForOceanTarget(elevation, values.oceanPercentage, values.seaLevel));
-  diagnostics.measure('water.mask.final', () => {
-    assignWaterMask(water, elevation, seaLevel);
-    smoothWaterMask(water, elevation, seaLevel, width, height);
-  });
-  diagnostics.measure('climate.final', () => generateClimate(temperature, wetness, elevation, water, values, tideInfluence, width, height));
-  diagnostics.measure('flow.final', () => generateAtmosphericAndOceanFlow(windX, windY, currentX, currentY, elevation, water, temperature, values, width, height));
-  diagnostics.measure('wetness.smooth', () => smoothFloatLayer(wetness, width, height, 2, 0.55));
-  let rivers = diagnostics.measure('hydrology.rivers', () => generateRivers(river, lakes, elevation, water, wetness, seaLevel, width, height, rng)).filter((candidate) =>
-    isRiverPathValid(candidate, elevation, water)
+  diagnostics.measure('topology.plates.assign', () => assignTopologyPlateLayer(topologyPlates, topology, topologyPlateData));
+  diagnostics.measure('topology.terrain.elevation', () => generateTopologyElevation(topologyElevation, topologyPlates, topologyPlateData, topology, values, rng, primordial));
+  let seaLevel = diagnostics.measure('topology.water.sea-level.pre-aging', () => findTopologySeaLevelForOceanTarget(topologyElevation, topology.areaWeights, values.oceanPercentage, values.seaLevel));
+  diagnostics.measure('topology.terrain.aging', () => applyTopologyTerrainAging(topologyElevation, topology, values.systemAgeGy, values.impactFrequency, seaLevel, rng, diagnostics));
+  diagnostics.measure('topology.terrain.enrichment', () => applyTopologyTerrainEnrichment(topologyElevation, topology, values, rng));
+  seaLevel = diagnostics.measure('topology.water.sea-level.final', () => findTopologySeaLevelForOceanTarget(topologyElevation, topology.areaWeights, values.oceanPercentage, values.seaLevel));
+  diagnostics.measure('topology.water.mask', () => assignTopologyWater(topologyWater, topologyElevation, seaLevel));
+  diagnostics.measure('topology.climate', () => generateTopologyClimate(topologyTemperature, topologyWetness, topologyElevation, topologyWater, topology, values, tideInfluence));
+  diagnostics.measure('topology.glaciation', () => assignTopologyIce(topologyIce, topologyElevation, topologyTemperature, topologyWetness, topology, seaLevel));
+  const topologyRivers = diagnostics.measure('topology.hydrology', () => generateTopologyHydrology(topologyRiver, topologyLakes, topologyElevation, topologyWater, topologyWetness, topology, seaLevel, values.riverDensity));
+  diagnostics.measure('topology.biomes', () => assignTopologyBiomes(topologyBiomes, topologyIce, topologyElevation, topologyWater, topologyTemperature, topologyWetness, topologyRiver, topologyLakes, topology, seaLevel));
+  diagnostics.measure('projection.equirectangular', () =>
+    projectTopologyToEquirectangular(
+      elevation,
+      platesLayer,
+      water,
+      temperature,
+      wetness,
+      biomes,
+      ice,
+      river,
+      lakes,
+      topologyElevation,
+      topologyPlates,
+      topologyWater,
+      topologyTemperature,
+      topologyWetness,
+      topologyBiomes,
+      topologyIce,
+      topologyRiver,
+      topologyLakes,
+      topology,
+      width,
+      height
+    )
   );
-  if (rivers.length < 6) {
-    diagnostics.measure('hydrology.fallback', () => {
-      rivers.push(...generateFallbackRivers(rivers.length, river, elevation, water, wetness, seaLevel, width, height));
-    });
-  }
-  rivers = rivers.filter((candidate) => isRiverPathValid(candidate, elevation, water));
-  if (rivers.length === 0) {
-    diagnostics.measure('hydrology.emergency', () => {
-      rivers.push(generateEmergencyBasinRiver(river, lakes, elevation, water, width, height));
-    });
-  }
-  diagnostics.measure('biomes.assign', () => assignBiomes(biomes, ice, elevation, water, temperature, wetness, river, lakes, seaLevel, width, height));
-  diagnostics.measure('biomes.smooth', () => smoothBiomeLayer(biomes, water, ice, width, height));
+  generateAtmosphericAndOceanFlow(windX, windY, currentX, currentY, elevation, water, temperature, values, width, height);
+  const rivers = topologyRivers.map((topologyRiverPath, index) => projectTopologyRiver(topologyRiverPath, topology, width, height, index));
 
   return {
     id: 'primary-world',
@@ -250,14 +323,37 @@ function generatePrimaryWorld(
       projection: config.projection,
       wrapMode: config.wrapMode
     },
-    plates,
+    topology: {
+      kind: topology.kind,
+      resolution: topology.resolution,
+      cellCount: topology.cellCount
+    },
+    topologyLayers: {
+      elevation: topologyElevation,
+      plates: topologyPlates,
+      water: topologyWater,
+      temperature: topologyTemperature,
+      wetness: topologyWetness,
+      biomes: topologyBiomes,
+      ice: topologyIce,
+      river: topologyRiver,
+      lakes: topologyLakes
+    },
+    plates: topologyPlateData.map((plate) => ({
+      id: plate.id,
+      kind: plate.kind,
+      centerX: plate.centerX,
+      centerY: plate.centerY,
+      motionX: plate.motionX,
+      motionY: plate.motionY
+    })),
     rivers,
     layers: { elevation, water, plates: platesLayer, temperature, wetness, biomes, ice, river, lakes, windX, windY, currentX, currentY }
   };
 }
 
-function createPlates(width: number, height: number, rng: SeededRandom): Plate[] {
-  const plateCount = Math.max(12, Math.min(28, Math.round(Math.sqrt(width * height) / 18)));
+function createPlates(width: number, height: number, requestedPlateCount: number, rng: SeededRandom): Plate[] {
+  const plateCount = Math.max(4, Math.min(72, Math.round(requestedPlateCount)));
   return Array.from({ length: plateCount }, (_, id) => {
     const angle = rng.range(0, Math.PI * 2);
     return {
@@ -269,6 +365,918 @@ function createPlates(width: number, height: number, rng: SeededRandom): Plate[]
       motionY: Math.sin(angle)
     };
   });
+}
+
+function createTopologyPlates(topology: CubedSphereTopology, requestedPlateCount: number, rng: SeededRandom, primordial: PrimordialFields): TopologyPlate[] {
+  const plateCount = Math.max(4, Math.min(72, Math.round(requestedPlateCount)));
+  const centerCells = choosePlateCenters(topology, plateCount, rng);
+  return centerCells.map((centerCell, id) => {
+    const centerX3 = topology.positions[centerCell * 3];
+    const centerY3 = topology.positions[centerCell * 3 + 1];
+    const centerZ3 = topology.positions[centerCell * 3 + 2];
+    const longitude = topology.longitudes[centerCell];
+    const latitude = topology.latitudes[centerCell];
+    const spin = rng.range(-0.45, 0.45);
+    const driftX = -centerZ3 + centerY3 * spin;
+    const driftZ = centerX3 - centerY3 * spin;
+    const motionLength = Math.max(0.000001, Math.sqrt(driftX * driftX + driftZ * driftZ));
+    const crustSignal = primordial.crustThickness[centerCell] + primordial.elevation[centerCell] * 0.45 - primordial.basin[centerCell] * 0.35;
+    const age = clamp(primordial.crustAge[centerCell] + rng.range(-0.12, 0.12));
+    const kind = crustSignal > 0.48 || (crustSignal > 0.38 && rng.next() > 0.35) ? 'continental' : 'oceanic';
+    return {
+      id,
+      kind,
+      centerX: round(((longitude + Math.PI) / (Math.PI * 2)) * 100, 2),
+      centerY: round((0.5 - latitude / Math.PI) * 100, 2),
+      motionX: driftX / motionLength,
+      motionY: driftZ / motionLength,
+      centerCell,
+      centerX3,
+      centerY3,
+      centerZ3,
+      age,
+      density: kind === 'continental' ? lerp(0.35, 0.68, primordial.crustThickness[centerCell]) : lerp(0.7, 1, 1 - age)
+    };
+  });
+}
+
+function choosePlateCenters(topology: CubedSphereTopology, count: number, rng: SeededRandom): number[] {
+  const candidateCount = Math.max(count * 16, 96);
+  const candidates = Array.from({ length: candidateCount }, () => rng.int(0, topology.cellCount - 1));
+  const selected = [candidates[0]];
+  while (selected.length < count) {
+    let best = candidates[0];
+    let bestScore = Number.NEGATIVE_INFINITY;
+    for (const candidate of candidates) {
+      if (selected.includes(candidate)) continue;
+      const cx = topology.positions[candidate * 3];
+      const cy = topology.positions[candidate * 3 + 1];
+      const cz = topology.positions[candidate * 3 + 2];
+      let nearest = Number.POSITIVE_INFINITY;
+      for (const center of selected) {
+        const dot = cx * topology.positions[center * 3] + cy * topology.positions[center * 3 + 1] + cz * topology.positions[center * 3 + 2];
+        nearest = Math.min(nearest, 1 - dot);
+      }
+      const jitter = rng.range(-0.018, 0.018);
+      if (nearest + jitter > bestScore) {
+        best = candidate;
+        bestScore = nearest + jitter;
+      }
+    }
+    selected.push(best);
+  }
+  return selected;
+}
+
+function assignTopologyPlateLayer(layer: Uint16Array, topology: CubedSphereTopology, plates: TopologyPlate[]): void {
+  for (let cell = 0; cell < topology.cellCount; cell += 1) {
+    const x = topology.positions[cell * 3];
+    const y = topology.positions[cell * 3 + 1];
+    const z = topology.positions[cell * 3 + 2];
+    let best = plates[0];
+    let bestScore = Number.NEGATIVE_INFINITY;
+    for (const plate of plates) {
+      const ridgeWarp =
+        sphericalNoise(x * 2.6 + plate.id * 0.17, y * 2.6 - plate.id * 0.11, z * 2.6) * 0.08 +
+        sphericalNoise(x * 7.2 - plate.id * 0.13, y * 7.2, z * 7.2 + plate.id * 0.19) * 0.035;
+      const score = x * plate.centerX3 + y * plate.centerY3 + z * plate.centerZ3 + ridgeWarp;
+      if (score > bestScore) {
+        best = plate;
+        bestScore = score;
+      }
+    }
+    layer[cell] = best.id;
+  }
+}
+
+function generatePrimordialFields(topology: CubedSphereTopology, values: SelectedValues, rng: SeededRandom): PrimordialFields {
+  const elevation = new Float32Array(topology.cellCount);
+  const crustAge = new Float32Array(topology.cellCount);
+  const crustThickness = new Float32Array(topology.cellCount);
+  const basin = new Float32Array(topology.cellCount);
+  const impact = new Float32Array(topology.cellCount);
+  const phaseA = rng.range(0, 1000);
+  const phaseB = rng.range(0, 1000);
+  const phaseC = rng.range(0, 1000);
+
+  for (let cell = 0; cell < topology.cellCount; cell += 1) {
+    const x = topology.positions[cell * 3];
+    const y = topology.positions[cell * 3 + 1];
+    const z = topology.positions[cell * 3 + 2];
+    const accretion =
+      coherentSphericalNoise(x * 0.85 + phaseA, y * 0.85 - phaseC, z * 0.85 + phaseB) * 0.2 +
+      coherentSphericalNoise(x * 1.65 - phaseB, y * 1.65 + phaseA, z * 1.65 - phaseC) * 0.13 +
+      coherentSphericalNoise(x * 3.2 + phaseC, y * 3.2 + phaseB, z * 3.2 - phaseA) * 0.055;
+    const basinSignal = smoothStep(0.18, 0.72, coherentSphericalNoise(x * 1.25 - phaseA, y * 1.25 + phaseC, z * 1.25 - phaseB));
+    const ageSignal = clamp(
+      0.5 +
+        coherentSphericalNoise(x * 1.05 + phaseC, y * 1.05 + phaseA, z * 1.05 - phaseB) * 0.36 +
+        coherentSphericalNoise(x * 2.7 - phaseB, y * 2.7 + phaseC, z * 2.7 + phaseA) * 0.14
+    );
+    basin[cell] = basinSignal;
+    crustAge[cell] = ageSignal;
+    crustThickness[cell] = clamp(0.44 + accretion * 0.95 + ageSignal * 0.22 - basinSignal * 0.34);
+    elevation[cell] = accretion + crustThickness[cell] * 0.18 - basinSignal * 0.23;
+  }
+
+  const impactCount = Math.max(6, Math.round(topology.cellCount / 9000 * values.impactFrequency * lerp(0.8, 1.45, clamp(values.systemAgeGy / 10))));
+  for (let i = 0; i < impactCount; i += 1) {
+    const center = rng.int(0, topology.cellCount - 1);
+    const radius = rng.range(0.025, 0.095);
+    const strength = rng.range(0.035, 0.12);
+    const cx = topology.positions[center * 3];
+    const cy = topology.positions[center * 3 + 1];
+    const cz = topology.positions[center * 3 + 2];
+    for (let cell = 0; cell < topology.cellCount; cell += 1) {
+      const dot = cx * topology.positions[cell * 3] + cy * topology.positions[cell * 3 + 1] + cz * topology.positions[cell * 3 + 2];
+      const distance = Math.acos(clamp(dot, -1, 1)) / Math.PI;
+      if (distance > radius * 1.42) continue;
+      const t = distance / radius;
+      const bowl = t <= 1 ? (1 - t) ** 2 : 0;
+      const rim = Math.max(0, 1 - Math.abs(t - 0.95) / 0.24);
+      const signal = rim * strength * 0.32 - bowl * strength;
+      elevation[cell] += signal;
+      impact[cell] = Math.max(impact[cell], Math.abs(signal));
+      crustThickness[cell] = clamp(crustThickness[cell] - bowl * strength * 0.7 + rim * strength * 0.18);
+    }
+  }
+
+  smoothTopologyLayer(elevation, topology, 2, 0.2);
+  smoothTopologyLayer(crustThickness, topology, 2, 0.18);
+  smoothTopologyLayer(basin, topology, 2, 0.22);
+  return { elevation, crustAge, crustThickness, basin, impact };
+}
+
+function generateTopologyElevation(
+  elevation: Float32Array,
+  plateLayer: Uint16Array,
+  plates: TopologyPlate[],
+  topology: CubedSphereTopology,
+  values: SelectedValues,
+  rng: SeededRandom,
+  primordial: PrimordialFields
+): void {
+  const phaseA = rng.range(0, 1000);
+  const phaseB = rng.range(0, 1000);
+  const continentPhase = rng.range(0, 1000);
+  const crust = generateCrustFields(topology, values, phaseA, phaseB, continentPhase);
+  for (let cell = 0; cell < topology.cellCount; cell += 1) {
+    const x = topology.positions[cell * 3];
+    const y = topology.positions[cell * 3 + 1];
+    const z = topology.positions[cell * 3 + 2];
+    const latitude01 = 1 - Math.abs(topology.latitudes[cell]) / (Math.PI / 2);
+    const plate = plates[plateLayer[cell]];
+    const plateBias = plate.kind === 'continental' ? 0.012 + plate.age * 0.018 : -0.026 - (1 - plate.age) * 0.018;
+    const continental = crust.continental[cell];
+    const inheritedThickness = lerp(crust.thickness[cell], primordial.crustThickness[cell], 0.38);
+    const thickness = clamp(inheritedThickness + (plate.kind === 'continental' ? 0.08 : -0.08));
+    const shelf = crust.shelf[cell];
+    const craton = Math.max(0, coherentSphericalNoise(x * 1.25 + phaseB, y * 1.25 - continentPhase, z * 1.25 + phaseA) - 0.15) * continental;
+    const plateauField = Math.max(
+      0,
+      coherentSphericalNoise(x * 2.1 + plate.id * 0.31, y * 2.1 - phaseB, z * 2.1 + phaseA) - 0.2
+    ) * 0.22 * continental;
+    const basinField = Math.min(
+      0,
+      coherentSphericalNoise(x * 2.3 - plate.id * 0.27, y * 2.3 + phaseA, z * 2.3 - phaseB) + 0.08
+    ) * 0.12;
+    const broad =
+      coherentSphericalNoise(x * 1.4 + phaseA, y * 1.4, z * 1.4 + phaseB) * 0.08 +
+      coherentSphericalNoise(x * 3.0 + phaseB, y * 3.0 + phaseA, z * 3.0) * 0.055;
+    const detail =
+      coherentSphericalNoise(x * 7.5 + phaseA, y * 7.5 + phaseB, z * 7.5) * 0.035 +
+      coherentSphericalNoise(x * 16.5 + phaseB, y * 16.5, z * 16.5 + phaseA) * 0.018;
+    const polarShelf = (1 - latitude01) * -0.045;
+    const primordialBasin = primordial.basin[cell] * 0.14;
+    const primordialRelief = primordial.elevation[cell] * 0.42 + primordial.impact[cell] * 0.18;
+    const oceanicBase = -0.34 + shelf * 0.15 + basinField - primordialBasin + primordialRelief * 0.22;
+    const continentalBase = 0.09 + thickness * 0.43 + craton * 0.14 + plateauField + primordialRelief;
+    const crustBlend = clamp(continental * 0.72 + primordial.crustThickness[cell] * 0.28);
+    elevation[cell] = lerp(oceanicBase, continentalBase, crustBlend) + plateBias + broad + detail + polarShelf;
+  }
+
+  const uplift = new Float32Array(elevation.length);
+  for (let cell = 0; cell < topology.cellCount; cell += 1) {
+    const currentPlate = plateLayer[cell];
+    const neighbors = topology.neighbors.subarray(cell * 4, cell * 4 + 4);
+    for (const neighbor of neighbors) {
+      if (neighbor < 0 || neighbor <= cell || plateLayer[neighbor] === currentPlate) continue;
+      const current = plates[currentPlate];
+      const next = plates[plateLayer[neighbor]];
+      const effect = topologyPlateBoundaryEffect(current, next, topology, cell, neighbor);
+      uplift[cell] += effect;
+      uplift[neighbor] += effect;
+      for (let i = 0; i < 4; i += 1) {
+        const aroundCurrent = topology.neighbors[cell * 4 + i];
+        const aroundNext = topology.neighbors[neighbor * 4 + i];
+        if (aroundCurrent >= 0) uplift[aroundCurrent] += effect * 0.26;
+        if (aroundNext >= 0) uplift[aroundNext] += effect * 0.26;
+      }
+    }
+  }
+
+  for (let cell = 0; cell < elevation.length; cell += 1) elevation[cell] += uplift[cell];
+  smoothTopologyLayer(elevation, topology, 3, 0.22);
+}
+
+function generateCrustFields(topology: CubedSphereTopology, values: SelectedValues, phaseA: number, phaseB: number, phaseC: number): CrustFields {
+  const continental = new Float32Array(topology.cellCount);
+  const thickness = new Float32Array(topology.cellCount);
+  const shelf = new Float32Array(topology.cellCount);
+  const continentCount = Math.max(1, Math.round(values.continentCount));
+  const countFootprint = clamp(Math.sqrt(5 / continentCount), 0.58, 1.75);
+  const continentRadius = lerp(0.105, 0.205, values.continentScale) * countFootprint;
+  const continentRegions = chooseContinentRegions(continentCount, continentRadius, phaseA, phaseB, phaseC);
+  const islandFrequency = lerp(4.8, 14, values.islandDensity);
+
+  for (let cell = 0; cell < topology.cellCount; cell += 1) {
+    const x = topology.positions[cell * 3];
+    const y = topology.positions[cell * 3 + 1];
+    const z = topology.positions[cell * 3 + 2];
+    let primary = 0;
+    for (const region of continentRegions) {
+      let regionValue = 0;
+      for (const lobe of region.lobes) {
+        const dot = clamp(x * lobe.x + y * lobe.y + z * lobe.z, -1, 1);
+        const distance = Math.acos(dot) / Math.PI;
+        const axial = Math.abs(x * region.axisX + y * region.axisY + z * region.axisZ);
+        const edgeWarp =
+          coherentSphericalNoise(x * 3.2 + lobe.x * 9, y * 3.2 + lobe.y * 9, z * 3.2 + lobe.z * 9) * 0.04 +
+          coherentSphericalNoise(x * 7.4 - lobe.z * 5, y * 7.4 + lobe.x * 5, z * 7.4 - lobe.y * 5) * 0.018;
+        const radius = lobe.radius * (1 + axial * region.elongation) + edgeWarp;
+        regionValue = Math.max(regionValue, (1 - smoothStep(radius, radius + 0.075, distance)) * lobe.weight);
+      }
+      primary = Math.max(primary, regionValue);
+    }
+    primary += coherentSphericalNoise(x * 2.3 + phaseA, y * 2.3 - phaseC, z * 2.3 + phaseB) * 0.12;
+    const island =
+      Math.max(0, coherentSphericalNoise(x * islandFrequency + phaseC, y * islandFrequency + phaseA, z * islandFrequency - phaseB) - 0.42) *
+      lerp(0.12, 0.42, values.islandDensity);
+    const rift =
+      Math.max(0, coherentSphericalNoise(x * 2.05 - phaseA, y * 2.05 + phaseC, z * 2.05 - phaseB) - 0.22) *
+      lerp(0.38, 0.16, values.continentScale);
+    const basin =
+      Math.max(0, coherentSphericalNoise(x * 1.45 + phaseB, y * 1.45 - phaseA, z * 1.45 + phaseC) - 0.18) *
+      lerp(0.28, 0.11, values.continentScale);
+    const shearRift =
+      Math.max(0, Math.abs(coherentSphericalNoise(x * 4.6 - phaseC, y * 4.6 + phaseB, z * 4.6 - phaseA)) - 0.54) *
+      lerp(0.34, 0.12, values.continentScale);
+    const edgeThresholdWarp = coherentSphericalNoise(x * 9.5 + phaseA, y * 9.5 - phaseB, z * 9.5 + phaseC) * 0.05;
+    const continent = clamp(smoothStep(0.4 + edgeThresholdWarp, 0.76 + edgeThresholdWarp * 0.5, primary - rift - basin - shearRift) + island);
+    continental[cell] = continent;
+    shelf[cell] = smoothStep(-0.28, 0.18, primary);
+    thickness[cell] = clamp(
+      continent *
+        (0.42 +
+          coherentSphericalNoise(x * 1.1 - phaseC, y * 1.1 + phaseB, z * 1.1 + phaseA) * 0.24 +
+          coherentSphericalNoise(x * 2.6 + phaseA, y * 2.6, z * 2.6 - phaseB) * 0.12)
+    );
+  }
+
+  smoothTopologyLayer(continental, topology, 3, 0.28);
+  smoothTopologyLayer(thickness, topology, 3, 0.26);
+  smoothTopologyLayer(shelf, topology, 3, 0.28);
+  return { continental, thickness, shelf };
+}
+
+function chooseContinentRegions(count: number, baseRadius: number, phaseA: number, phaseB: number, phaseC: number): ContinentRegion[] {
+  const candidates = Array.from({ length: Math.max(24, count * 10) }, (_, index) => continentCenterVector(index, phaseA, phaseB, phaseC));
+  const selected = [candidates[0]];
+  while (selected.length < count) {
+    let best = candidates[0];
+    let bestScore = Number.NEGATIVE_INFINITY;
+    for (const candidate of candidates) {
+      const nearest = selected.reduce((min, center) => Math.min(min, 1 - (candidate.x * center.x + candidate.y * center.y + candidate.z * center.z)), Number.POSITIVE_INFINITY);
+      if (nearest > bestScore) {
+        best = candidate;
+        bestScore = nearest;
+      }
+    }
+    selected.push(best);
+  }
+  return selected.map((center, index) => {
+    const axisSeed = continentCenterVector(index + 101, phaseC, phaseA, phaseB);
+    const lobeCount = 2 + Math.abs(Math.round(latticeNoise3(index * 5.3, phaseA * 0.031, phaseB * 0.029) * 2));
+    const lobes = Array.from({ length: lobeCount }, (_, lobeIndex) => {
+      if (lobeIndex === 0) {
+        return { x: center.x, y: center.y, z: center.z, radius: baseRadius * center.scale, weight: 1 };
+      }
+      const offset = continentCenterVector(index * 17 + lobeIndex * 3, phaseA + lobeIndex * 11, phaseB - lobeIndex * 7, phaseC + lobeIndex * 5);
+      const mixed = normalize3(
+        center.x * 0.82 + offset.x * 0.36,
+        center.y * 0.82 + offset.y * 0.36,
+        center.z * 0.82 + offset.z * 0.36
+      );
+      return {
+        ...mixed,
+        radius: baseRadius * center.scale * lerp(0.55, 0.9, (latticeNoise3(index, lobeIndex, phaseC * 0.01) + 1) / 2),
+        weight: lerp(0.62, 0.92, (latticeNoise3(index * 2, lobeIndex * 3, phaseB * 0.01) + 1) / 2)
+      };
+    });
+    return {
+      ...center,
+      elongation: lerp(0.15, 0.75, (latticeNoise3(index * 4.1, phaseB * 0.021, phaseC * 0.017) + 1) / 2),
+      axisX: axisSeed.x,
+      axisY: axisSeed.y,
+      axisZ: axisSeed.z,
+      lobes
+    };
+  });
+}
+
+function continentCenterVector(index: number, phaseA: number, phaseB: number, phaseC: number): { x: number; y: number; z: number; scale: number } {
+  const a = index + 1;
+  const longitude = latticeNoise3(a * 1.7, phaseA * 0.013, phaseB * 0.017) * Math.PI;
+  const latitude = Math.asin(clamp(latticeNoise3(a * 2.3, phaseB * 0.019, phaseC * 0.011) * 0.78, -0.9, 0.9));
+  const cosLat = Math.cos(latitude);
+  return {
+    x: cosLat * Math.cos(longitude),
+    y: Math.sin(latitude),
+    z: cosLat * Math.sin(longitude),
+    scale: lerp(0.75, 1.25, (latticeNoise3(a * 3.1, phaseC * 0.017, phaseA * 0.023) + 1) / 2)
+  };
+}
+
+function normalize3(x: number, y: number, z: number): { x: number; y: number; z: number } {
+  const length = Math.max(0.000001, Math.sqrt(x * x + y * y + z * z));
+  return { x: x / length, y: y / length, z: z / length };
+}
+
+function smoothStep(edge0: number, edge1: number, value: number): number {
+  const t = clamp((value - edge0) / (edge1 - edge0));
+  return t * t * (3 - 2 * t);
+}
+
+function topologyPlateBoundaryEffect(a: TopologyPlate, b: TopologyPlate, topology: CubedSphereTopology, cell: number, neighbor: number): number {
+  const lonA = topology.longitudes[cell];
+  const latA = topology.latitudes[cell];
+  const lonB = topology.longitudes[neighbor];
+  const latB = topology.latitudes[neighbor];
+  const boundaryX = wrappedAngle(lonB - lonA);
+  const boundaryY = latB - latA;
+  const length = Math.max(0.000001, Math.sqrt(boundaryX * boundaryX + boundaryY * boundaryY));
+  const nx = boundaryX / length;
+  const ny = boundaryY / length;
+  const relativeX = b.motionX - a.motionX;
+  const relativeY = b.motionY - a.motionY;
+  const convergence = relativeX * nx + relativeY * ny;
+  const shear = Math.abs(relativeX * -ny + relativeY * nx);
+
+  if (convergence > 0.18) {
+    if (a.kind === 'continental' && b.kind === 'continental') return 0.08 + convergence * 0.08;
+    if (a.kind !== b.kind) return 0.045 + convergence * 0.07;
+    return 0.018 + convergence * 0.03;
+  }
+  if (convergence < -0.16) return -0.035 + convergence * 0.055;
+  return shear > 0.45 ? 0.012 - shear * 0.018 : -0.012;
+}
+
+function smoothTopologyLayer(layer: Float32Array, topology: CubedSphereTopology, passes: number, blend: number): void {
+  for (let pass = 0; pass < passes; pass += 1) {
+    const next = new Float32Array(layer);
+    for (let cell = 0; cell < layer.length; cell += 1) {
+      let total = layer[cell];
+      let count = 1;
+      for (let i = 0; i < 4; i += 1) {
+        const neighbor = topology.neighbors[cell * 4 + i];
+        if (neighbor < 0) continue;
+        total += layer[neighbor];
+        count += 1;
+      }
+      next[cell] = lerp(layer[cell], total / count, blend);
+    }
+    layer.set(next);
+  }
+}
+
+function lowestTopologyNeighbor(elevation: Float32Array, topology: CubedSphereTopology, cell: number, water?: Uint8Array): number {
+  let best = cell;
+  let bestValue = elevation[cell];
+  for (let i = 0; i < 4; i += 1) {
+    const neighbor = topology.neighbors[cell * 4 + i];
+    if (neighbor < 0) continue;
+    const value = water?.[neighbor] === 1 ? elevation[neighbor] - 0.08 : elevation[neighbor];
+    if (value < bestValue) {
+      best = neighbor;
+      bestValue = value;
+    }
+  }
+  return best;
+}
+
+function projectTopologyRiver(river: TopologyRiverPath, topology: CubedSphereTopology, width: number, height: number, index: number): River {
+  const projectedPath = simplifyProjectedRiverPath(river.path.map((cell) => {
+    const longitude = topology.longitudes[cell];
+    const latitude = topology.latitudes[cell];
+    const x = wrapX(Math.round(((longitude + Math.PI) / (Math.PI * 2)) * width), width);
+    const y = Math.max(0, Math.min(height - 1, Math.round((0.5 - latitude / Math.PI) * height)));
+    return layerIndex(x, y, width);
+  }));
+  return {
+    id: `river-${index + 1}`,
+    sourceIndex: projectedPath[0],
+    mouthIndex: projectedPath[projectedPath.length - 1],
+    path: projectedPath,
+    terminus: river.terminus
+  };
+}
+
+function simplifyProjectedRiverPath(path: number[]): number[] {
+  const result: number[] = [];
+  for (const index of path) if (result[result.length - 1] !== index) result.push(index);
+  return result;
+}
+
+function percentile(values: number[], p: number): number {
+  if (values.length === 0) return Number.POSITIVE_INFINITY;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.max(0, Math.min(sorted.length - 1, Math.floor(sorted.length * p)))];
+}
+
+function wrappedAngle(value: number): number {
+  return Math.atan2(Math.sin(value), Math.cos(value));
+}
+
+function projectTopologyToEquirectangular(
+  elevation: Float32Array,
+  plates: Uint16Array,
+  water: Uint8Array,
+  temperature: Float32Array,
+  wetness: Float32Array,
+  biomes: Uint8Array,
+  ice: Uint8Array,
+  river: Float32Array,
+  lakes: Uint8Array,
+  topologyElevation: Float32Array,
+  topologyPlates: Uint16Array,
+  topologyWater: Uint8Array,
+  topologyTemperature: Float32Array,
+  topologyWetness: Float32Array,
+  topologyBiomes: Uint8Array,
+  topologyIce: Uint8Array,
+  topologyRiver: Float32Array,
+  topologyLakes: Uint8Array,
+  topology: CubedSphereTopology,
+  width: number,
+  height: number
+): void {
+  for (let y = 0; y < height; y += 1) {
+    const latitude = Math.PI / 2 - (y / Math.max(1, height - 1)) * Math.PI;
+    for (let x = 0; x < width; x += 1) {
+      const longitude = (x / width) * Math.PI * 2 - Math.PI;
+      const topologyCell = cubedSphereCellForLonLat(topology, longitude, latitude);
+      const index = layerIndex(x, y, width);
+      elevation[index] = topologyElevation[topologyCell];
+      plates[index] = topologyPlates[topologyCell];
+      water[index] = topologyWater[topologyCell];
+      temperature[index] = topologyTemperature[topologyCell];
+      wetness[index] = topologyWetness[topologyCell];
+      biomes[index] = topologyBiomes[topologyCell];
+      ice[index] = topologyIce[topologyCell];
+      river[index] = topologyRiver[topologyCell];
+      lakes[index] = topologyLakes[topologyCell];
+    }
+  }
+}
+
+function findTopologySeaLevelForOceanTarget(elevation: Float32Array, areaWeights: Float32Array, oceanTarget: number, adjustment: number): number {
+  const cells = Array.from(elevation, (value, index) => ({ value, weight: areaWeights[index] || 1 })).sort((a, b) => a.value - b.value);
+  const totalWeight = cells.reduce((sum, cell) => sum + cell.weight, 0);
+  const targetWeight = totalWeight * (oceanTarget / 100);
+  let running = 0;
+  for (const cell of cells) {
+    running += cell.weight;
+    if (running >= targetWeight) return cell.value + adjustment * 0.01;
+  }
+  return cells[cells.length - 1]?.value ?? 0;
+}
+
+function assignTopologyWater(water: Uint8Array, elevation: Float32Array, seaLevel: number): void {
+  for (let cell = 0; cell < water.length; cell += 1) water[cell] = elevation[cell] <= seaLevel ? 1 : 0;
+}
+
+function applyTopologyTerrainAging(
+  elevation: Float32Array,
+  topology: CubedSphereTopology,
+  ageGy: number,
+  impactFrequency: number,
+  seaLevel: number,
+  rng: SeededRandom,
+  diagnostics: DiagnosticsRecorder
+): void {
+  const age01 = clamp(ageGy / 10);
+  diagnostics.measure('topology.terrain.aging.impacts', () => applyTopologyImpacts(elevation, topology, age01, impactFrequency, seaLevel, rng));
+  diagnostics.measure('topology.terrain.aging.weathering', () => applyTopologyThermalWeathering(elevation, topology, age01));
+  diagnostics.measure('topology.terrain.aging.hydraulic', () => applyTopologyHydraulicErosion(elevation, topology, age01));
+}
+
+function applyTopologyImpacts(elevation: Float32Array, topology: CubedSphereTopology, age01: number, impactFrequency: number, seaLevel: number, rng: SeededRandom): void {
+  const impactCount = Math.max(0, Math.round(topology.cellCount / 4500 * lerp(0.55, 1.3, age01) * impactFrequency));
+  for (let impact = 0; impact < impactCount; impact += 1) {
+    const center = rng.int(0, topology.cellCount - 1);
+    const radius = rng.range(0.018, 0.065);
+    const depth = rng.range(0.035, 0.11) * lerp(1.05, 0.55, age01);
+    const cx = topology.positions[center * 3];
+    const cy = topology.positions[center * 3 + 1];
+    const cz = topology.positions[center * 3 + 2];
+    for (let cell = 0; cell < topology.cellCount; cell += 1) {
+      const dot = cx * topology.positions[cell * 3] + cy * topology.positions[cell * 3 + 1] + cz * topology.positions[cell * 3 + 2];
+      const distance = Math.acos(clamp(dot, -1, 1)) / Math.PI;
+      if (distance > radius * 1.35) continue;
+      const underwaterDamping = elevation[cell] < seaLevel ? 0.15 : 1;
+      const t = distance / radius;
+      if (t <= 1) {
+        const bowl = (1 - t) ** 2;
+        const rim = Math.max(0, 1 - Math.abs(t - 0.86) / 0.16);
+        elevation[cell] += (rim * depth * 0.32 - bowl * depth) * underwaterDamping;
+      } else {
+        const outer = 1 - (t - 1) / 0.35;
+        elevation[cell] += outer * outer * depth * 0.14 * underwaterDamping;
+      }
+    }
+  }
+}
+
+function applyTopologyThermalWeathering(elevation: Float32Array, topology: CubedSphereTopology, age01: number): void {
+  const passes = Math.max(1, Math.round(lerp(1, 5, age01)));
+  const talus = lerp(0.11, 0.04, age01);
+  const rate = lerp(0.08, 0.24, age01);
+  for (let pass = 0; pass < passes; pass += 1) {
+    const next = new Float32Array(elevation);
+    for (let cell = 0; cell < elevation.length; cell += 1) {
+      const current = elevation[cell];
+      let moved = 0;
+      for (let i = 0; i < 4; i += 1) {
+        const neighbor = topology.neighbors[cell * 4 + i];
+        if (neighbor < 0) continue;
+        const excess = current - elevation[neighbor] - talus;
+        if (excess > 0) {
+          const transfer = excess * rate * 0.25;
+          next[neighbor] += transfer;
+          moved += transfer;
+        }
+      }
+      next[cell] -= moved;
+    }
+    elevation.set(next);
+  }
+}
+
+function applyTopologyHydraulicErosion(elevation: Float32Array, topology: CubedSphereTopology, age01: number): void {
+  const passes = Math.max(1, Math.round(lerp(1, 4, age01)));
+  const erosionRate = lerp(0.006, 0.026, age01);
+  for (let pass = 0; pass < passes; pass += 1) {
+    const next = new Float32Array(elevation);
+    for (let cell = 0; cell < elevation.length; cell += 1) {
+      const downhill = lowestTopologyNeighbor(elevation, topology, cell);
+      if (downhill === cell) continue;
+      const drop = elevation[cell] - elevation[downhill];
+      const cut = clamp(drop * 2.2) * erosionRate;
+      next[cell] -= cut;
+      next[downhill] += cut * 0.55;
+    }
+    elevation.set(next);
+  }
+}
+
+function applyTopologyTerrainEnrichment(elevation: Float32Array, topology: CubedSphereTopology, values: SelectedValues, rng: SeededRandom): void {
+  const phaseA = rng.range(0, 1000);
+  const phaseB = rng.range(0, 1000);
+  const phaseC = rng.range(0, 1000);
+  const low = percentile(Array.from(elevation), 0.2);
+  const high = percentile(Array.from(elevation), 0.9);
+  for (let cell = 0; cell < elevation.length; cell += 1) {
+    const x = topology.positions[cell * 3];
+    const y = topology.positions[cell * 3 + 1];
+    const z = topology.positions[cell * 3 + 2];
+    const height01 = normalizeValue(elevation[cell], low, high);
+    const continentalMask = smoothStep(0.28, 0.72, height01);
+    const highlandMask = smoothStep(0.52, 0.86, height01);
+    const dryMask = clamp(values.aridity * 1.25 - 0.18);
+
+    const ridgeField =
+      ridgedSphericalNoise(x * 5.2 + phaseA, y * 5.2 - phaseB, z * 5.2 + phaseC) * 0.032 +
+      ridgedSphericalNoise(x * 11.0 - phaseC, y * 11.0 + phaseA, z * 11.0 - phaseB) * 0.014;
+    const ridgeMask = smoothStep(0.46, 0.78, coherentSphericalNoise(x * 1.8 + phaseB, y * 1.8 + phaseC, z * 1.8 - phaseA));
+
+    const strata = smoothTerrace(height01 + coherentSphericalNoise(x * 8.5 + phaseC, y * 8.5 - phaseA, z * 8.5 + phaseB) * 0.035, 13);
+    const terraceSignal = (strata - height01) * 0.07 * dryMask * smoothStep(0.35, 0.78, height01);
+
+    const broadUndulation =
+      coherentSphericalNoise(x * 2.8 - phaseB, y * 2.8 + phaseA, z * 2.8 + phaseC) * 0.018 +
+      coherentSphericalNoise(x * 14.0 + phaseA, y * 14.0 + phaseB, z * 14.0 - phaseC) * 0.006;
+
+    elevation[cell] += ridgeField * ridgeMask * highlandMask + terraceSignal + broadUndulation * continentalMask;
+  }
+  smoothTopologyLayer(elevation, topology, 1, 0.12);
+}
+
+function ridgedSphericalNoise(x: number, y: number, z: number): number {
+  const value = 1 - Math.abs(coherentSphericalNoise(x, y, z) * 2 - 1);
+  return value * value;
+}
+
+function smoothTerrace(value: number, steps: number): number {
+  const scaled = value * steps;
+  const base = Math.floor(scaled);
+  const fraction = scaled - base;
+  const eased = smoothStep(0.18, 0.82, fraction);
+  return (base + eased) / steps;
+}
+
+function generateTopologyClimate(
+  temperature: Float32Array,
+  wetness: Float32Array,
+  elevation: Float32Array,
+  water: Uint8Array,
+  topology: CubedSphereTopology,
+  values: SelectedValues,
+  tideInfluence: number
+): void {
+  const oceanInfluence = computeTopologyWaterInfluence(water, topology, 18);
+  for (let cell = 0; cell < topology.cellCount; cell += 1) {
+    const lat01 = Math.abs(topology.latitudes[cell]) / (Math.PI / 2);
+    const latitudeHeat = 1 - lat01;
+    const elev = elevation[cell];
+    const x = topology.positions[cell * 3];
+    const y = topology.positions[cell * 3 + 1];
+    const z = topology.positions[cell * 3 + 2];
+    temperature[cell] = values.averageTemperatureC + latitudeHeat * 28 - 14 - Math.max(0, elev) * 26 - values.orbitalEccentricity * 16 + sphericalNoise(x * 6, y * 6, z * 6) * 2.2;
+    const windBand = Math.sin(topology.latitudes[cell] * 6);
+    const rainShadowValue = topologyRainShadow(elevation, topology, cell);
+    const wetBase = oceanInfluence[cell] * 0.62 + (1 - values.aridity) * 0.42 + Math.max(0, windBand) * 0.18 + tideInfluence * 0.04;
+    wetness[cell] = clamp((wetBase - rainShadowValue * 1.05 + sphericalNoise(x * 9, y * 9, z * 9) * 0.13 - 0.45) * 1.35 + 0.5);
+  }
+  smoothTopologyLayer(wetness, topology, 1, 0.22);
+}
+
+function topologyRainShadow(elevation: Float32Array, topology: CubedSphereTopology, cell: number): number {
+  let shadow = 0;
+  const longitude = topology.longitudes[cell];
+  let cursor = cell;
+  for (let step = 0; step < 8; step += 1) {
+    let best = cursor;
+    let bestDelta = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < 4; i += 1) {
+      const neighbor = topology.neighbors[cursor * 4 + i];
+      if (neighbor < 0) continue;
+      const delta = Math.abs(wrappedAngle(topology.longitudes[neighbor] - (longitude - (step + 1) * 0.035)));
+      if (delta < bestDelta) {
+        best = neighbor;
+        bestDelta = delta;
+      }
+    }
+    cursor = best;
+    shadow = Math.max(shadow, Math.max(0, elevation[cursor] - 0.28) * (1 - step / 9));
+  }
+  return clamp(shadow * 1.45);
+}
+
+function computeTopologyWaterInfluence(water: Uint8Array, topology: CubedSphereTopology, radius: number): Float32Array {
+  const distance = new Float32Array(water.length);
+  const maxDistance = radius + 1;
+  for (let cell = 0; cell < water.length; cell += 1) distance[cell] = water[cell] === 1 ? 0 : maxDistance;
+  for (let pass = 0; pass < radius; pass += 1) {
+    for (let cell = 0; cell < water.length; cell += 1) {
+      let best = distance[cell];
+      for (let i = 0; i < 4; i += 1) {
+        const neighbor = topology.neighbors[cell * 4 + i];
+        if (neighbor >= 0) best = Math.min(best, distance[neighbor] + 1);
+      }
+      distance[cell] = best;
+    }
+  }
+  for (let cell = 0; cell < distance.length; cell += 1) distance[cell] = clamp(1 - distance[cell] / maxDistance);
+  return distance;
+}
+
+function assignTopologyIce(ice: Uint8Array, elevation: Float32Array, temperature: Float32Array, wetness: Float32Array, topology: CubedSphereTopology, seaLevel: number): void {
+  ice.fill(0);
+  for (let cell = 0; cell < ice.length; cell += 1) {
+    const polarLatitude = Math.abs(topology.latitudes[cell]) / (Math.PI / 2);
+    const highMountain = elevation[cell] > seaLevel + 0.54;
+    if ((polarLatitude > 0.84 && temperature[cell] < 1.5) || (highMountain && temperature[cell] < -2 + wetness[cell] * 2)) ice[cell] = 1;
+  }
+}
+
+function generateTopologyHydrology(
+  river: Float32Array,
+  lakes: Uint8Array,
+  elevation: Float32Array,
+  water: Uint8Array,
+  wetness: Float32Array,
+  topology: CubedSphereTopology,
+  seaLevel: number,
+  riverDensity: number
+): TopologyRiverPath[] {
+  river.fill(0);
+  lakes.fill(0);
+  const oceanInfluence = computeTopologyWaterInfluence(water, topology, 48);
+  const drainageElevation = computeTopologyDrainageSurface(elevation, water, topology);
+  const flow = new Float32Array(elevation.length);
+  const receiver = new Int32Array(elevation.length);
+  const order = Array.from(elevation.keys()).sort((a, b) => drainageElevation[b] - drainageElevation[a]);
+  for (let cell = 0; cell < elevation.length; cell += 1) {
+    receiver[cell] = hydrologyReceiver(elevation, drainageElevation, water, topology, cell);
+    flow[cell] = water[cell] === 1 ? 0 : Math.max(0.02, wetness[cell] * Math.max(0.05, elevation[cell] - seaLevel + 0.08));
+    if (water[cell] === 0 && drainageElevation[cell] > elevation[cell] + 0.014) lakes[cell] = 1;
+  }
+  for (const cell of order) {
+    if (water[cell] === 1) continue;
+    const next = receiver[cell];
+    if (next === cell) {
+      markTopologyLakeBasin(lakes, elevation, topology, cell, drainageElevation[cell] + 0.004, 2);
+      continue;
+    }
+    flow[next] += flow[cell] * 0.92;
+  }
+  const channelThreshold = percentile(Array.from(flow).filter((value) => value > 0), clamp(0.91 - riverDensity * 0.032, 0.68, 0.91));
+  for (let cell = 0; cell < flow.length; cell += 1) {
+    if (water[cell] === 1 || flow[cell] <= channelThreshold) continue;
+    river[cell] += clamp((flow[cell] - channelThreshold) / Math.max(0.0001, channelThreshold * 2.4));
+  }
+  const threshold = percentile(Array.from(flow).filter((value) => value > 0), clamp(0.94 - riverDensity * 0.024, 0.78, 0.94));
+  const sourceCandidates = order
+    .filter((cell) => water[cell] === 0 && flow[cell] > threshold && elevation[cell] > seaLevel + 0.09)
+    .sort((a, b) => riverSourceScore(flow, elevation, oceanInfluence, seaLevel, b) - riverSourceScore(flow, elevation, oceanInfluence, seaLevel, a));
+  const paths: TopologyRiverPath[] = [];
+  const maxPaths = Math.max(18, Math.min(180, Math.round(riverDensity * 36)));
+  const minNamedPathLength = Math.max(4, Math.round(topology.resolution / 64));
+  for (const source of sourceCandidates) {
+    if (paths.length >= maxPaths) break;
+    if (river[source] > 0.4) continue;
+    const path: number[] = [];
+    const seen = new Set<number>();
+    let current = source;
+    let terminus: River['terminus'] = 'basin';
+    for (let step = 0; step < 800; step += 1) {
+      if (seen.has(current)) {
+        markTopologyLakeBasin(lakes, elevation, topology, current, drainageElevation[current] + 0.004, 2);
+        terminus = 'lake';
+        break;
+      }
+      seen.add(current);
+      path.push(current);
+      if (water[current] === 1) {
+        terminus = 'ocean';
+        break;
+      }
+      const next = receiver[current];
+      if (next === current) {
+        markTopologyLakeBasin(lakes, elevation, topology, current, drainageElevation[current] + 0.004, 3);
+        terminus = 'lake';
+        break;
+      }
+      current = next;
+    }
+    if (path.length < minNamedPathLength) continue;
+    for (let i = 0; i < path.length; i += 1) river[path[i]] += lerp(1.3, 0.28, i / path.length);
+    paths.push({ path, terminus });
+  }
+  return paths;
+}
+
+function hydrologyReceiver(elevation: Float32Array, drainageElevation: Float32Array, water: Uint8Array, topology: CubedSphereTopology, cell: number): number {
+  if (water[cell] === 1) return cell;
+  let best = cell;
+  let bestScore = drainageElevation[cell] + elevation[cell] * 0.001;
+  for (let i = 0; i < 4; i += 1) {
+    const neighbor = topology.neighbors[cell * 4 + i];
+    if (neighbor < 0) continue;
+    if (water[neighbor] === 1) return neighbor;
+    const score = drainageElevation[neighbor] + elevation[neighbor] * 0.001;
+    if (score < bestScore) {
+      best = neighbor;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+function computeTopologyDrainageSurface(elevation: Float32Array, water: Uint8Array, topology: CubedSphereTopology): Float32Array {
+  const filled = new Float32Array(elevation.length);
+  filled.fill(Number.POSITIVE_INFINITY);
+  const heap = new MinHeap();
+  for (let cell = 0; cell < water.length; cell += 1) {
+    if (water[cell] !== 1) continue;
+    filled[cell] = elevation[cell];
+    heap.push({ cell, priority: filled[cell] });
+  }
+  if (heap.size === 0) {
+    filled.set(elevation);
+    return filled;
+  }
+  const epsilon = 0.00002;
+  while (heap.size > 0) {
+    const node = heap.pop()!;
+    if (node.priority > filled[node.cell] + epsilon) continue;
+    for (let i = 0; i < 4; i += 1) {
+      const neighbor = topology.neighbors[node.cell * 4 + i];
+      if (neighbor < 0 || filled[neighbor] !== Number.POSITIVE_INFINITY) continue;
+      const next = Math.max(elevation[neighbor], filled[node.cell] + epsilon);
+      filled[neighbor] = next;
+      heap.push({ cell: neighbor, priority: next });
+    }
+  }
+  return filled;
+}
+
+function riverSourceScore(flow: Float32Array, elevation: Float32Array, oceanInfluence: Float32Array, seaLevel: number, cell: number): number {
+  const relief = Math.max(0, elevation[cell] - seaLevel);
+  const inland = 1 - oceanInfluence[cell] * 0.58;
+  return flow[cell] * (0.45 + relief * 2.4) * Math.max(0.2, inland);
+}
+
+function markTopologyLakeBasin(lakes: Uint8Array, elevation: Float32Array, topology: CubedSphereTopology, start: number, spillLevel: number, radius: number): void {
+  const queue: Array<{ cell: number; depth: number }> = [{ cell: start, depth: 0 }];
+  const seen = new Set<number>([start]);
+  while (queue.length) {
+    const { cell, depth } = queue.shift()!;
+    if (elevation[cell] <= spillLevel) lakes[cell] = 1;
+    if (depth >= radius) continue;
+    for (let i = 0; i < 4; i += 1) {
+      const neighbor = topology.neighbors[cell * 4 + i];
+      if (neighbor < 0 || seen.has(neighbor) || elevation[neighbor] > spillLevel) continue;
+      seen.add(neighbor);
+      queue.push({ cell: neighbor, depth: depth + 1 });
+    }
+  }
+}
+
+class MinHeap {
+  private readonly values: HeapNode[] = [];
+
+  get size(): number {
+    return this.values.length;
+  }
+
+  push(node: HeapNode): void {
+    this.values.push(node);
+    this.bubbleUp(this.values.length - 1);
+  }
+
+  pop(): HeapNode | undefined {
+    if (this.values.length === 0) return undefined;
+    const root = this.values[0];
+    const last = this.values.pop()!;
+    if (this.values.length > 0) {
+      this.values[0] = last;
+      this.sinkDown(0);
+    }
+    return root;
+  }
+
+  private bubbleUp(index: number): void {
+    let current = index;
+    while (current > 0) {
+      const parent = Math.floor((current - 1) / 2);
+      if (this.values[parent].priority <= this.values[current].priority) break;
+      [this.values[parent], this.values[current]] = [this.values[current], this.values[parent]];
+      current = parent;
+    }
+  }
+
+  private sinkDown(index: number): void {
+    let current = index;
+    while (true) {
+      const left = current * 2 + 1;
+      const right = left + 1;
+      let smallest = current;
+      if (left < this.values.length && this.values[left].priority < this.values[smallest].priority) smallest = left;
+      if (right < this.values.length && this.values[right].priority < this.values[smallest].priority) smallest = right;
+      if (smallest === current) break;
+      [this.values[current], this.values[smallest]] = [this.values[smallest], this.values[current]];
+      current = smallest;
+    }
+  }
+}
+
+function assignTopologyBiomes(
+  biomes: Uint8Array,
+  ice: Uint8Array,
+  elevation: Float32Array,
+  water: Uint8Array,
+  temperature: Float32Array,
+  wetness: Float32Array,
+  river: Float32Array,
+  lakes: Uint8Array,
+  topology: CubedSphereTopology,
+  seaLevel: number
+): void {
+  for (let cell = 0; cell < biomes.length; cell += 1) {
+    const polarLatitude = Math.abs(topology.latitudes[cell]) / (Math.PI / 2);
+    let biome: Biome;
+    if (water[cell] === 1) biome = 'ocean';
+    else if (ice[cell] === 1) biome = 'ice_cap';
+    else if (temperature[cell] < 1) biome = 'tundra';
+    else if (elevation[cell] > seaLevel + 0.46) biome = 'mountain';
+    else if (lakes[cell] || river[cell] > 0.55) biome = 'wetland';
+    else if (wetness[cell] < 0.2) biome = 'desert';
+    else if (wetness[cell] > 0.72 && temperature[cell] > 20) biome = 'rainforest';
+    else if (wetness[cell] > 0.48 || (polarLatitude < 0.65 && wetness[cell] > 0.42)) biome = 'forest';
+    else biome = 'grassland';
+    biomes[cell] = biomeToCode(biome);
+  }
 }
 
 function assignPlateLayer(layer: Uint16Array, plates: Plate[], width: number, height: number): void {
@@ -385,11 +1393,12 @@ function applyTerrainAging(
   height: number,
   ageGy: number,
   impactFrequency: number,
+  seaLevel: number,
   rng: SeededRandom,
   diagnostics: DiagnosticsRecorder
 ): void {
   const age01 = clamp(ageGy / 10);
-  diagnostics.measure('terrain.aging.impacts', () => applyAsteroidImpacts(elevation, width, height, age01, impactFrequency, rng));
+  diagnostics.measure('terrain.aging.impacts', () => applyAsteroidImpacts(elevation, width, height, age01, impactFrequency, seaLevel, rng));
   diagnostics.measure('terrain.aging.weathering', () => applyThermalWeathering(elevation, width, height, age01));
   diagnostics.measure('terrain.aging.hydraulic', () => applyHydraulicErosion(elevation, width, height, age01));
   diagnostics.measure('terrain.aging.basins', () => shapeClosedBasins(elevation, width, height, age01));
@@ -401,6 +1410,7 @@ function applyAsteroidImpacts(
   height: number,
   age01: number,
   impactFrequency: number,
+  seaLevel: number,
   rng: SeededRandom
 ): void {
   const worldScale = Math.sqrt(width * height);
@@ -423,15 +1433,18 @@ function applyAsteroidImpacts(
         if (distance > radius + rimWidth) continue;
         const x = wrapX(centerX + ox, width);
         const index = layerIndex(x, y, width);
+        const underwater = elevation[index] < seaLevel;
+        const waterDamping = underwater ? 0.18 : 1;
+        const localDepth = depth * waterDamping;
 
         if (distance <= radius) {
           const inner01 = distance / radius;
           const bowl = (1 - inner01) ** 2;
           const innerRim = Math.max(0, 1 - Math.abs(inner01 - 0.86) / 0.14);
-          elevation[index] += innerRim * depth * 0.38 - bowl * depth;
+          elevation[index] += innerRim * localDepth * 0.38 - bowl * localDepth;
         } else {
           const outer01 = (distance - radius) / rimWidth;
-          elevation[index] += (1 - outer01) ** 2 * depth * 0.22;
+          elevation[index] += (1 - outer01) ** 2 * localDepth * 0.22;
         }
       }
     }
@@ -598,6 +1611,51 @@ function smoothFloatLayer(layer: Float32Array, width: number, height: number, pa
   }
 }
 
+function smoothHorizontalSeam(layer: Float32Array, width: number, height: number, radius: number): void {
+  const next = new Float32Array(layer);
+  for (let y = 0; y < height; y += 1) {
+    for (let offset = 0; offset < radius; offset += 1) {
+      const leftIndex = layerIndex(offset, y, width);
+      const rightIndex = layerIndex(width - 1 - offset, y, width);
+      const blend = 1 - offset / radius;
+      const average = (layer[leftIndex] + layer[rightIndex]) / 2;
+      next[leftIndex] = lerp(layer[leftIndex], average, blend * 0.88);
+      next[rightIndex] = lerp(layer[rightIndex], average, blend * 0.88);
+    }
+  }
+  layer.set(next);
+}
+
+function softenPolarTerrain(elevation: Float32Array, width: number, height: number): void {
+  const next = new Float32Array(elevation);
+  const polarRows = Math.max(4, Math.round(height * 0.1));
+  for (let y = 0; y < height; y += 1) {
+    const distanceFromPole = Math.min(y, height - 1 - y);
+    if (distanceFromPole >= polarRows) continue;
+    const blend = ((polarRows - distanceFromPole) / polarRows) ** 1.4 * 0.42;
+    const bandAverage = averageRow(elevation, y, width);
+    for (let x = 0; x < width; x += 1) {
+      const index = layerIndex(x, y, width);
+      const localAverage = (
+        elevation[layerIndex(wrapX(x - 2, width), y, width)] +
+        elevation[layerIndex(wrapX(x - 1, width), y, width)] +
+        elevation[index] +
+        elevation[layerIndex(wrapX(x + 1, width), y, width)] +
+        elevation[layerIndex(wrapX(x + 2, width), y, width)]
+      ) / 5;
+      next[index] = lerp(elevation[index], lerp(localAverage, bandAverage, 0.24), blend);
+    }
+  }
+  elevation.set(next);
+}
+
+function averageRow(layer: Float32Array, y: number, width: number): number {
+  let total = 0;
+  const start = y * width;
+  for (let x = 0; x < width; x += 1) total += layer[start + x];
+  return total / width;
+}
+
 function smoothBiomeLayer(biomes: Uint8Array, water: Uint8Array, ice: Uint8Array, width: number, height: number): void {
   const next = new Uint8Array(biomes);
   for (let index = 0; index < biomes.length; index += 1) {
@@ -749,11 +1807,16 @@ function generateClimate(
     for (let x = 0; x < width; x += 1) {
       const i = layerIndex(x, y, width);
       const elev = elevation[i];
-      temperature[i] = values.averageTemperatureC + latitudeHeat * 30 - 15 - Math.max(0, elev) * 28 - values.orbitalEccentricity * 18;
+      const regionalTempNoise = valueNoise(x / 80, y / 48) * 2.2 + valueNoise(x / 31, y / 29) * 0.9;
+      temperature[i] = values.averageTemperatureC + latitudeHeat * 28 - 14 - Math.max(0, elev) * 26 - values.orbitalEccentricity * 16 + regionalTempNoise;
       const oceanProximity = oceanInfluence[i];
       const westMountain = rainShadow(elevation, x, y, width, height);
-      const baseWet = oceanProximity * 0.52 + (1 - values.aridity) * 0.42 + Math.max(0, windBand) * 0.18 + tideInfluence * 0.05;
-      wetness[i] = clamp(baseWet - westMountain + valueNoise(x / 24, y / 24) * 0.16);
+      const wetBand = Math.max(0, windBand) * 0.2 - Math.max(0, -windBand) * 0.12;
+      const continentalDryness = (1 - oceanProximity) * lerp(0.05, 0.24, values.aridity);
+      const regionalWetness = valueNoise(x / 54, y / 34) * 0.2 + valueNoise(x / 19, y / 23) * 0.08;
+      const baseWet = oceanProximity * 0.58 + (1 - values.aridity) * 0.44 + wetBand + tideInfluence * 0.05;
+      const rawWetness = baseWet - westMountain * 1.15 - continentalDryness + regionalWetness;
+      wetness[i] = clamp((rawWetness - 0.46) * 1.35 + 0.5);
     }
   }
 }
@@ -829,21 +1892,25 @@ function generateRivers(
   seaLevel: number,
   width: number,
   height: number,
+  riverDensity: number,
   rng: SeededRandom
 ): River[] {
+  const density01 = clamp(riverDensity / 5);
+  const sourceElevationThreshold = seaLevel + lerp(0.16, 0.025, density01);
+  const sourceWetnessThreshold = lerp(0.28, 0.06, density01);
   const candidates = Array.from(elevation.keys())
-    .filter((i) => water[i] === 0 && elevation[i] > seaLevel + 0.08 && wetness[i] > 0.28)
-    .sort((a, b) => elevation[b] + wetness[b] - (elevation[a] + wetness[a]));
-  const riverCount = Math.min(70, Math.max(12, Math.round((width * height) / 650)));
+    .filter((i) => water[i] === 0 && elevation[i] > sourceElevationThreshold && wetness[i] > sourceWetnessThreshold)
+    .sort((a, b) => elevation[b] * 1.55 + wetness[b] * 0.75 - (elevation[a] * 1.55 + wetness[a] * 0.75));
+  const riverCount = Math.min(180, Math.max(8, Math.round((width * height) / 520 * riverDensity)));
   const rivers: River[] = [];
   const stride = Math.max(1, Math.floor(candidates.length / riverCount));
 
   for (let r = 0; r < riverCount && r * stride < candidates.length; r += 1) {
     const source = candidates[Math.min(candidates.length - 1, r * stride + rng.int(0, Math.min(stride - 1, 8)))];
-    const path = traceRiver(source, elevation, water, riverLayer, lakes, seaLevel, width, height);
-    if (path.path.length > 4) {
+    const path = traceRiver(source, elevation, water, wetness, riverLayer, lakes, seaLevel, width, height);
+    if (path.path.length > 5) {
       const id = `river-${rivers.length + 1}`;
-      for (let j = 0; j < path.path.length; j += 1) riverLayer[path.path[j]] += lerp(0.7, 0.18, j / path.path.length);
+      for (let j = 0; j < path.path.length; j += 1) riverLayer[path.path[j]] += lerp(1.2, 0.32, j / path.path.length);
       rivers.push({ id, sourceIndex: source, mouthIndex: path.path[path.path.length - 1], path: path.path, terminus: path.terminus });
     }
   }
@@ -854,6 +1921,7 @@ function traceRiver(
   source: number,
   elevation: Float32Array,
   water: Uint8Array,
+  wetness: Float32Array,
   riverLayer: Float32Array,
   lakes: Uint8Array,
   seaLevel: number,
@@ -887,6 +1955,12 @@ function traceRiver(
       }
     }
     if (best === current) {
+      const outlet = carveToNearestOcean(current, elevation, water, wetness, seaLevel, width, height);
+      if (outlet.length > 3) {
+        normalizeCarvedPath(outlet, elevation, water);
+        path.push(...outlet.slice(1));
+        return { path, terminus: 'ocean' };
+      }
       const spillway = neighbors.reduce((lowest, next) => (elevation[next] < elevation[lowest] ? next : lowest), neighbors[0]);
       if (spillway !== undefined && water[spillway] === 0 && !seen.has(spillway)) {
         lakes[current] = 1;
@@ -905,6 +1979,7 @@ function traceRiver(
 
 function generateFallbackRivers(
   startingCount: number,
+  desiredCount: number,
   riverLayer: Float32Array,
   elevation: Float32Array,
   water: Uint8Array,
@@ -914,17 +1989,23 @@ function generateFallbackRivers(
   height: number
 ): River[] {
   const sources = Array.from(elevation.keys())
-    .filter((i) => water[i] === 0)
-    .sort((a, b) => elevation[b] + wetness[b] - (elevation[a] + wetness[a]));
+    .filter((i) => {
+      if (water[i] === 1 || elevation[i] <= seaLevel + 0.035) return false;
+      const x = i % width;
+      const y = Math.floor(i / width);
+      return nearbyWater(water, x, y, width, height, 10) < 0.72;
+    })
+    .sort((a, b) => elevation[b] * 1.2 + wetness[b] - (elevation[a] * 1.2 + wetness[a]));
   const rivers: River[] = [];
-  const spacing = Math.max(1, Math.floor(sources.length / 6));
-  for (let i = 0; i < sources.length && rivers.length < 6 - startingCount; i += spacing) {
+  const remaining = Math.max(0, desiredCount - startingCount);
+  const spacing = Math.max(1, Math.floor(sources.length / Math.max(1, remaining)));
+  for (let i = 0; i < sources.length && rivers.length < remaining; i += spacing) {
     const source = sources[i];
     const path = carveToNearestOcean(source, elevation, water, wetness, seaLevel, width, height);
-    if (path.length > 4) {
+    if (path.length > 6) {
       normalizeCarvedPath(path, elevation, water);
       path.forEach((index, step) => {
-        riverLayer[index] += lerp(0.65, 0.18, step / path.length);
+        riverLayer[index] += lerp(0.9, 0.26, step / path.length);
       });
       rivers.push({
         id: `river-${startingCount + rivers.length + 1}`,
@@ -1112,9 +2193,12 @@ function assignBiomes(
 ): void {
   for (let i = 0; i < biomes.length; i += 1) {
     const y = Math.floor(i / width);
+    const x = i % width;
     const polarLatitude = Math.abs((y / (height - 1)) * 2 - 1);
     const highMountain = elevation[i] > seaLevel + 0.72;
-    const permanentIce = (polarLatitude > 0.86 && temperature[i] < 0.5) || (temperature[i] < -12 && (polarLatitude > 0.7 || highMountain));
+    const polarTexture = valueNoise(x / 31, y / 13) * 0.035 + valueNoise(x / 83, y / 29) * 0.025;
+    const iceLatitude = 0.86 + polarTexture - clamp(wetness[i] - 0.5, -0.18, 0.18) * 0.05;
+    const permanentIce = (polarLatitude > iceLatitude && temperature[i] < 0.5) || (temperature[i] < -12 && (polarLatitude > 0.7 || highMountain));
     let biome: Biome;
     if (water[i] === 1) {
       biome = 'ocean';
@@ -1141,11 +2225,12 @@ function assignBiomes(
 }
 
 export function calculateMetrics(world: PrimaryWorld, values: SelectedValues): WorldMetrics {
-  const total = world.layers.water.length;
-  const waterCells = count(world.layers.water, 1);
-  const iceCells = count(world.layers.ice, 1);
+  const metricLayers = world.topologyLayers?.water?.length ? world.topologyLayers : world.layers;
+  const total = metricLayers.water.length;
+  const waterCells = count(metricLayers.water, 1);
+  const iceCells = count(metricLayers.ice, 1);
   const biomeCounts = Object.fromEntries(biomeNames.map((biome) => [biome, 0])) as Record<Biome, number>;
-  for (const code of world.layers.biomes) biomeCounts[codeToBiome(code)] += 1;
+  for (const code of metricLayers.biomes) biomeCounts[codeToBiome(code)] += 1;
   const oceanPercentage = round((waterCells / total) * 100, 1);
   return {
     oceanPercentage,
@@ -1162,7 +2247,14 @@ export function calculateMetrics(world: PrimaryWorld, values: SelectedValues): W
 }
 
 function validateRivers(world: PrimaryWorld): boolean {
+  if (world.topologyLayers?.river?.length) return topologyRiverSignal(world);
   return world.rivers.every((river) => isRiverPathValid(river, world.layers.elevation, world.layers.water));
+}
+
+function topologyRiverSignal(world: PrimaryWorld): boolean {
+  let signal = 0;
+  for (const value of world.topologyLayers.river) if (value > 0.05) signal += 1;
+  return world.rivers.length === 0 || signal > 0;
 }
 
 function isRiverPathValid(river: River, elevation: Float32Array, water: Uint8Array): boolean {
@@ -1183,6 +2275,39 @@ function count(array: Uint8Array, value: number): number {
 
 function valueNoise(x: number, y: number): number {
   const value = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+  return (value - Math.floor(value)) * 2 - 1;
+}
+
+function sphericalNoise(x: number, y: number, z: number): number {
+  const value = Math.sin(x * 12.9898 + y * 78.233 + z * 37.719) * 43758.5453;
+  return (value - Math.floor(value)) * 2 - 1;
+}
+
+function coherentSphericalNoise(x: number, y: number, z: number): number {
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const z0 = Math.floor(z);
+  const tx = smoothNoiseStep(x - x0);
+  const ty = smoothNoiseStep(y - y0);
+  const tz = smoothNoiseStep(z - z0);
+  let value = 0;
+  for (let dz = 0; dz <= 1; dz += 1) {
+    for (let dy = 0; dy <= 1; dy += 1) {
+      for (let dx = 0; dx <= 1; dx += 1) {
+        const weight = (dx ? tx : 1 - tx) * (dy ? ty : 1 - ty) * (dz ? tz : 1 - tz);
+        value += latticeNoise3(x0 + dx, y0 + dy, z0 + dz) * weight;
+      }
+    }
+  }
+  return value;
+}
+
+function smoothNoiseStep(value: number): number {
+  return value * value * value * (value * (value * 6 - 15) + 10);
+}
+
+function latticeNoise3(x: number, y: number, z: number): number {
+  const value = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453123;
   return (value - Math.floor(value)) * 2 - 1;
 }
 

@@ -16,9 +16,13 @@ roadmap:
     summary: Temperature bands, required wetness/rainfall model, rain shadows, river routing, basin/lake termination where emergent, ice caps, and biome placement.
   - id: slice-3-export-ready-mvp
     horizon: next
-    status: done
-    summary: Polished clean game-map PNG, simplified SVG, JSON schema documentation, .wforge project package, world summary, parameter ranges, and golden seed tests.
+    status: needs-rework
+    summary: Current raster-backed MVP is browser-testable, but must migrate generation truth to global topology before release.
+  - id: slice-3a-global-topology-foundation
+    horizon: now
+    status: in_progress
+    summary: Replace wrapped equirectangular generation truth with global topology cells, adjacency, spherical coordinates, area weighting, and projection sampling for preview/export layers.
   - id: slice-4-structured-expansion
     horizon: later
     status: planned
-    summary: Optional export profiles such as GeoJSON, CSV/tile data, Markdown summary, Godot, Tiled, and Civ-style abstractions after MVP fundamentals hold.
+    summary: Optional export profiles such as GeoJSON, CSV/tile data, Markdown summary, Godot, Tiled, and Civ-style abstractions after global-topology fundamentals hold.

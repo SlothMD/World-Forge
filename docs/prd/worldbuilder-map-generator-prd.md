@@ -31,11 +31,11 @@ The product is not a hard science simulator. It should use simplified, documente
 
 ### Internal Map Model
 
-MVP uses a wrapped equirectangular grid at default `2048x1024`, accessed through projection-neutral world-coordinate helpers.
+MVP should use a global topology as the authoritative primary-world model, accessed through projection-neutral world-coordinate helpers. Equirectangular output at default `2048x1024` is a projected preview/export layer, not the generation backing model.
 
-This is an implementation backing model, not a permanent product constraint. Generation systems must use shared APIs for latitude, longitude, neighbors, wrapped distance, layer sampling, and resampling. Do not bind domain logic directly to rendered pixels.
+Generation systems must use shared APIs for topology cell ids, latitude, longitude, area weights, neighbors, distances, layer sampling, and projection resampling. Do not bind domain logic directly to rendered pixels.
 
-This preserves future support for:
+This avoids equirectangular seam/polar artifacts and preserves support for:
 
 - square tile maps
 - hex maps
@@ -45,7 +45,7 @@ This preserves future support for:
 - regional crops
 - VTT image maps
 - spherical/globe renderers
-- future geodesic sampling
+- geodesic or cubed-sphere sampling
 
 ### Stack
 

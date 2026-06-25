@@ -159,23 +159,87 @@ select {
   text-align: right;
 }
 
-.dual-slider {
-  display: grid;
-  gap: 2px;
+.range-slider {
+  --range-min: 0%;
+  --range-max: 100%;
+  height: 22px;
   min-width: 0;
+  position: relative;
 }
 
-.dual-slider input[type="range"] {
-  accent-color: #2c7da0;
-  height: 16px;
+.range-slider::before,
+.range-slider::after {
+  border-radius: 999px;
+  content: "";
+  height: 6px;
+  left: 0;
+  pointer-events: none;
+  position: absolute;
+  right: 0;
+  top: 8px;
+  z-index: 0;
+}
+
+.range-slider::before {
+  background: #c8c0b0;
+}
+
+.range-slider::after {
+  background: #2c7da0;
+  left: var(--range-min);
+  right: calc(100% - var(--range-max));
+}
+
+.range-slider input[type="range"] {
+  appearance: none;
+  background: transparent;
+  height: 22px;
+  left: 0;
+  margin: 0;
   padding: 0;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
   width: 100%;
+  z-index: 1;
+}
+
+.range-slider input[type="range"]::-webkit-slider-runnable-track {
+  background: transparent;
+  height: 6px;
+}
+
+.range-slider input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  background: #f7f2e6;
+  border: 2px solid #1f667e;
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(31, 39, 38, 0.28);
+  height: 18px;
+  margin-top: -6px;
+  pointer-events: auto;
+  width: 18px;
+}
+
+.range-slider input[type="range"]::-moz-range-track {
+  background: transparent;
+  height: 6px;
+}
+
+.range-slider input[type="range"]::-moz-range-thumb {
+  background: #f7f2e6;
+  border: 2px solid #1f667e;
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(31, 39, 38, 0.28);
+  height: 14px;
+  pointer-events: auto;
+  width: 14px;
 }
 
 .map-pane {
   display: grid;
   gap: 8px;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
   min-width: 0;
 }
 
@@ -241,6 +305,28 @@ canvas {
   width: 100%;
 }
 
+.globe-viewer {
+  background:
+    radial-gradient(circle at 48% 46%, rgba(255, 255, 255, 0.1), transparent 28%),
+    #102533;
+  border-radius: 6px;
+  height: 100%;
+  min-height: 460px;
+  overflow: hidden;
+  position: relative;
+  touch-action: none;
+  width: 100%;
+}
+
+.globe-viewer canvas {
+  aspect-ratio: auto;
+  background: transparent;
+  height: 100%;
+  max-height: none;
+  max-width: none;
+  width: 100%;
+}
+
 .generating-overlay {
   align-items: center;
   background: rgba(31, 39, 38, 0.72);
@@ -293,6 +379,32 @@ canvas {
 .biomes span {
   font-size: 12px;
   text-transform: capitalize;
+}
+
+.map-legend {
+  align-items: center;
+  background: #ece7dc;
+  border: 1px solid #b9b2a3;
+  border-radius: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 8px 10px;
+}
+
+.map-legend span {
+  align-items: center;
+  display: inline-flex;
+  font-size: 12px;
+  gap: 5px;
+  text-transform: capitalize;
+}
+
+.map-legend i {
+  border: 1px solid rgba(31, 39, 38, 0.28);
+  display: inline-block;
+  height: 12px;
+  width: 18px;
 }
 
 @media (max-width: 980px) {

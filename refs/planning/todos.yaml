@@ -1,6 +1,6 @@
 version: 1
 schema: refs/schemas/schemaRegistry.yaml
-updated: 2026-06-24
+updated: 2026-06-25
 todos:
   - id: scaffold-monorepo
     status: done
@@ -56,3 +56,89 @@ todos:
     status: done
     area: ui
     summary: Separate generation resolution, display scale, and export resolution controls.
+  - id: design-global-topology-model
+    status: done
+    area: architecture
+    priority: high
+    summary: Choose and document the authoritative primary-world topology model, including cell ids, spherical coordinates, area weights, adjacency, distance, and projection sampling contracts.
+    notes:
+      - Prefer geodesic or cubed-sphere topology over a flat wrapped raster.
+      - Equirectangular layers should become projected views, not generation truth.
+      - Include migration behavior for existing .wforge packages generated with raster-backed worlds.
+  - id: implement-topology-core
+    status: done
+    area: generation
+    priority: high
+    summary: Implement deterministic topology construction, neighbor lookup, spherical distance, latitude/longitude lookup, and cell-area weighting in shared/generator APIs.
+    notes:
+      - Initial implementation uses cubed-sphere topology.
+      - Topology elevation and plate layers are persisted in JSON/.wforge.
+      - Additional distance/interpolation quality improvements may be needed as more subsystems migrate.
+  - id: migrate-generation-to-topology
+    status: in_progress
+    area: generation
+    priority: high
+    summary: Move plates, elevation, climate, hydrology, ice, biomes, lakes, and rivers from raw x/y raster loops to topology-cell algorithms.
+    notes:
+      - Plate assignment and initial elevation now run on topology cells, then project to equirectangular layers.
+      - Landmass shape now uses continent/island fields rather than plate membership as the primary land/ocean driver.
+      - Water masks, climate/wetness, hydrology, rivers, lakes, ice, and biomes now originate on topology layers and project to raster views.
+      - Continent/craton region count is user-adjustable, with count-scaled, multi-lobed region footprints for less regular high-resolution landmasses.
+      - First primordial/plate-history pass exists: lumpy pre-plate terrain, crust age/thickness, early impacts, Poisson-like plate seeds, warped plate regions, and motion-aware boundary effects.
+      - Remaining follow-up: richer wind/current modeling, topology-native terrain aging refinements, tributary hierarchy quality, and projected river path readability.
+  - id: implement-projection-sampling
+    status: in_progress
+    area: rendering
+    priority: high
+    summary: Project topology-cell world facts into equirectangular preview/export layers without introducing seam or polar artifacts.
+    notes:
+      - Initial nearest-cell projection exists for elevation and plates.
+      - Interpolation and subsystem-specific projected artifacts remain follow-up work.
+  - id: split-topology-vs-projection-tests
+    status: open
+    area: testing
+    priority: high
+    summary: Add deterministic tests for topology data separately from projected raster render/export output.
+  - id: audit-long-term-dead-ends
+    status: open
+    area: architecture
+    priority: medium
+    summary: Review current shortcuts that could become dead ends, including renderer-derived facts, export profile coupling, JSON/package schema evolution, resource/game-rule coupling, moon/tide simplification, and performance-driven fallbacks.
+  - id: evaluate-procedural-layer-stack
+    status: in_progress
+    area: generation
+    priority: medium
+    summary: Evaluate adding a serializable post-process/procedural detail layer stack inspired by ProceduralTerrains, constrained to operate over authoritative topology facts rather than replacing process-based generation.
+    notes:
+      - First scoped enrichment pass exists in generator-core with ridged detail, dry highland strata/terracing, and masked broad undulation over topology elevation.
+      - Candidate layer types: ridged uplift detail, canyon/terrace strata, dune fields, craters, local flow-channel carving, albedo/detail masks.
+      - Keep tectonics, hydrology, climate, and biomes as canonical simulation outputs; layer stacks should enrich or style them with explicit masks.
+      - Consider CPU sampler parity tests if any generated layer is also rendered or exported through a shader path.
+  - id: add-3d-globe-view
+    status: in_progress
+    area: rendering
+    priority: high
+    summary: Add an interactive 3D globe view of generated worlds without making the renderer authoritative.
+    notes:
+      - First Three.js globe viewer exists in the desktop app, textured by the existing map renderer and vertex-displaced from generated elevation.
+      - Globe smoke checks passed at desktop and mobile viewports.
+      - Globe displacement should stay presentation-scaled and subtle; terrain is intentionally not drawn at diagnostic/exaggerated height.
+      - Follow-up: code-split Three.js, expose globe layer controls, add atmosphere/cloud presentation, and consider direct topology rendering for future non-equirectangular views.
+  - id: optimize-topology-generation
+    status: open
+    area: performance
+    priority: high
+    summary: Optimize high-resolution topology generation after primordial/plate-history terrain improvements.
+    notes:
+      - Current 2048x1024 generation for seed 1001001 is about 36 seconds locally.
+      - Major hotspot is topology terrain elevation; profile before changing algorithms.
+      - Preserve visual quality of the primordial/plate-history pass while reducing repeated all-cell scans and boundary loops.
+  - id: add-space-presentation
+    status: open
+    area: rendering
+    priority: medium
+    summary: Add globe scene presentation features including clouds, atmosphere, sun, moons, and day/night cycle.
+    notes:
+      - Clouds and atmosphere are visual layers over canonical world data.
+      - Sun/moon positions should use generated solar-system fields where available and remain deterministic by seed/time.
+      - Day/night cycle should affect lighting only unless/until climate simulation consumes time-of-day.

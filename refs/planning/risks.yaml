@@ -14,11 +14,41 @@ risks:
     mitigation: Renderer must be a view over generated layers and never create world facts.
   - id: projection-rework
     status: open
-    severity: medium
-    summary: Pixel-bound generation could block future playable map formats.
-    mitigation: Use coordinate helpers and resampling APIs so equirectangular is the MVP backing model, not the permanent public contract.
+    severity: high
+    summary: Pixel-bound generation creates seam/polar artifacts and can block future playable map formats.
+    mitigation: Move generation truth to a global topology now; keep equirectangular only as a projection/export view.
   - id: export-scope-creep
     status: open
     severity: medium
     summary: Many valuable export formats could dilute MVP.
     mitigation: Require PNG, simplified SVG, JSON, and .wforge only; keep other formats as profile architecture.
+  - id: topology-migration-risk
+    status: open
+    severity: high
+    summary: Existing raster-backed world data, tests, and packages may need migration when topology becomes authoritative.
+    mitigation: Version the world model, support read-only import or regeneration for raster-backed packages, and separate topology tests from projection tests.
+  - id: renderer-derived-facts
+    status: open
+    severity: high
+    summary: Visual overlays can accidentally become de facto facts, such as inferred river channels, coastline styling, or projected artifacts.
+    mitigation: Store hydrology, coast, lake, and biome facts in generated data; renderers may simplify or stylize but must not invent authoritative geography.
+  - id: package-schema-lock-in
+    status: open
+    severity: medium
+    summary: Early .wforge and JSON schemas can lock the project into raster layer storage if compatibility is not planned.
+    mitigation: Add explicit world model versioning and allow topology data plus projected layer artifacts to coexist during migration.
+  - id: fallback-becomes-model
+    status: open
+    severity: medium
+    summary: Performance fallbacks and visual cleanup passes can become hidden generation rules if not documented and tested.
+    mitigation: Keep fallbacks named, deterministic, measured, and covered by acceptance tests; optimize after the desired model is correct.
+  - id: game-rule-coupling
+    status: open
+    severity: medium
+    summary: Resource layers, Civ-like abstractions, VTT assumptions, or engine-specific constraints could leak into core planet generation.
+    mitigation: Keep game/resource outputs as export profiles over neutral world facts, not core generation dependencies.
+  - id: simplified-orbital-model
+    status: open
+    severity: low
+    summary: Simple moon tide/climate scalars may become insufficient if orbital plausibility becomes a visible product promise.
+    mitigation: Preserve orbital data fields and isolate tide/climate influence so richer modeling can replace the scalar later.

@@ -4,8 +4,10 @@ updated: 2026-06-24
 terms:
   - term: .wforge
     definition: Working project package extension for zipped World Forge saves containing manifest and layer data.
-  - term: equirectangular backing grid
-    definition: MVP internal sample grid that wraps east-west and is accessed through coordinate helpers rather than raw pixel logic.
+  - term: global topology
+    definition: Authoritative primary-world cell graph with spherical coordinates, adjacency, distance, and area weighting used for generation before projection.
+  - term: equirectangular projection layer
+    definition: Derived rectangular map view projected from global topology for preview, PNG, SVG, JSON, and compatibility exports.
   - term: export profile
     definition: A format-specific exporter that serializes or resamples generated world data without changing generation logic.
   - term: golden seed

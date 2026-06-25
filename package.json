@@ -21,6 +21,7 @@
     "lucide-react": "^0.561.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
+    "three": "^0.185.0",
     "typescript": "^5.9.3",
     "vite": "^7.3.0"
   },
@@ -29,6 +30,8 @@
     "@types/node": "^24.10.4",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "@types/three": "^0.184.1",
+    "playwright": "^1.61.1",
     "tsx": "^4.22.4",
     "vitest": "^4.0.15"
   },

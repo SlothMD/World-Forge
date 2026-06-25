@@ -5,7 +5,7 @@ export type MapTheme = {
   colors: Record<string, string>;
 };
 
-export type MapMode = 'biomes' | 'elevation' | 'temperature' | 'rainfall' | 'wind' | 'current';
+export type MapMode = 'biomes' | 'elevation' | 'heightmap' | 'temperature' | 'rainfall' | 'wind' | 'current';
 
 export type RenderOptions = {
   rivers: boolean;
@@ -30,10 +30,10 @@ export const cleanGameMapTheme: MapTheme = {
     grassland: '#86a95c',
     forest: '#3f7a4b',
     rainforest: '#236546',
-    mountain: '#8b8377',
+    mountain: '#7b756c',
     wetland: '#5e8f76',
-    river: '#a7e3ff',
-    riverShadow: '#15556c',
+    river: '#d7f7ff',
+    riverShadow: '#073949',
     coastline: '#f3e6be'
   }
 };
@@ -55,6 +55,7 @@ export function renderWorldToCanvas(
   const image = ctx.createImageData(width, height);
 
   const [minElevation, maxElevation] = minMax(world.layers.elevation);
+  const [lowElevation, highElevation] = percentileRange(world.layers.elevation, 0.02, 0.98);
   const [minTemperature, maxTemperature] = minMax(world.layers.temperature);
   const mode = visible.mode ?? (visible.heightmap ? 'elevation' : 'biomes');
   for (let y = 0; y < height; y += 1) {
@@ -62,7 +63,7 @@ export function renderWorldToCanvas(
       const i = sampleIndex(x, y, width, height, worldResolution.width, worldResolution.height);
       const biome = codeToBiome(world.layers.biomes[i]);
       const elevation = normalizeValue(world.layers.elevation[i], minElevation, maxElevation);
-      const color = colorForMode(world, i, x, y, width, height, biome, elevation, mode, theme, minTemperature, maxTemperature);
+      const color = colorForMode(world, i, x, y, width, height, biome, elevation, mode, theme, minTemperature, maxTemperature, lowElevation, highElevation);
       const offset = (y * width + x) * 4;
       image.data[offset] = color[0];
       image.data[offset + 1] = color[1];
@@ -72,7 +73,10 @@ export function renderWorldToCanvas(
   }
   ctx.putImageData(image, 0, 0);
 
-  if (visible.rivers) drawRivers(ctx, world, theme, width, height);
+  if (visible.rivers) {
+    drawRiverChannels(ctx, world, theme, width, height);
+    drawRivers(ctx, world, theme, width, height);
+  }
   if (visible.plates) drawPlateOverlay(ctx, world, width, height);
 }
 
@@ -88,9 +92,12 @@ function colorForMode(
   mode: MapMode,
   theme: MapTheme,
   minTemperature: number,
-  maxTemperature: number
+  maxTemperature: number,
+  lowElevation: number,
+  highElevation: number
 ): [number, number, number] {
   if (mode === 'elevation') return heightmapColor(world, index, elevation);
+  if (mode === 'heightmap') return grayscaleHeightmapColor(world.layers.elevation[index], lowElevation, highElevation);
   if (mode === 'temperature') return temperatureColor(normalizeValue(world.layers.temperature[index], minTemperature, maxTemperature), world.layers.water[index] === 1);
   if (mode === 'rainfall') return rainfallColor(world.layers.wetness[index], world.layers.water[index] === 1);
   if (mode === 'wind') return windColor(world.layers.windX[index], world.layers.windY[index], x, y, width, height, world.layers.water[index] === 1);
@@ -138,17 +145,45 @@ export function worldToSvg(project: WorldProject, theme: MapTheme = cleanGameMap
 function colorForCell(world: PrimaryWorld, index: number, biome: string, elevation: number, theme: MapTheme): [number, number, number] {
   const hex = hexForBiome(world, index, theme);
   const rgb = parseHex(hex);
-  const shade = biome === 'ocean' ? 0.76 + elevation * 0.18 : 0.86 + elevation * 0.22;
-  return [Math.round(rgb[0] * shade), Math.round(rgb[1] * shade), Math.round(rgb[2] * shade)];
+  const shade = biome === 'ocean' ? 0.76 + elevation * 0.18 : 0.84 + elevation * 0.2;
+  let color: [number, number, number] = [Math.round(rgb[0] * shade), Math.round(rgb[1] * shade), Math.round(rgb[2] * shade)];
+  if (biome === 'mountain') {
+    const ridge = mountainRidgeSignal(world, index);
+    color = mix(color, [52, 49, 45], ridge * 0.45);
+    if (elevation > 0.82) color = mix(color, [238, 238, 230], (elevation - 0.82) / 0.18);
+  }
+  if (world.layers.ice[index] && world.layers.water[index] === 0) {
+    color = elevation > 0.62 ? mix(color, [255, 255, 250], 0.82) : mix(color, [230, 241, 244], 0.72);
+  }
+  return color;
+}
+
+function mountainRidgeSignal(world: PrimaryWorld, index: number): number {
+  const { width, height } = world.mapModel.resolution;
+  const x = index % width;
+  const y = Math.floor(index / width);
+  const current = world.layers.elevation[index];
+  const left = world.layers.elevation[y * width + ((x - 1 + width) % width)];
+  const right = world.layers.elevation[y * width + ((x + 1) % width)];
+  const up = world.layers.elevation[Math.max(0, y - 1) * width + x];
+  const down = world.layers.elevation[Math.min(height - 1, y + 1) * width + x];
+  return clamp(Math.abs(current - left) + Math.abs(current - right) + Math.abs(current - up) + Math.abs(current - down));
 }
 
 function heightmapColor(world: PrimaryWorld, index: number, elevation: number): [number, number, number] {
+  const shaped = clamp((elevation - 0.08) / 0.84);
   if (world.layers.water[index]) {
-    const blue = Math.round(80 + elevation * 90);
-    return [24, Math.max(60, blue - 20), blue];
+    const depth = 1 - shaped;
+    return mix([5, 33, 72], [48, 158, 174], 1 - depth ** 1.8);
   }
-  const value = Math.round(58 + elevation * 178);
   if (world.layers.ice[index]) return [220, 236, 241];
+  if (shaped < 0.28) return mix([54, 74, 55], [126, 139, 82], shaped / 0.28);
+  if (shaped < 0.68) return mix([126, 139, 82], [156, 141, 118], (shaped - 0.28) / 0.4);
+  return mix([156, 141, 118], [245, 245, 240], (shaped - 0.68) / 0.32);
+}
+
+function grayscaleHeightmapColor(elevation: number, lowElevation: number, highElevation: number): [number, number, number] {
+  const value = Math.round(normalizeValue(elevation, lowElevation, highElevation) * 255);
   return [value, value, value];
 }
 
@@ -173,7 +208,9 @@ function temperatureColor(value: number, water: boolean): [number, number, numbe
 
 function rainfallColor(value: number, water: boolean): [number, number, number] {
   if (water) return [38, 111, 146];
-  return mix([205, 178, 94], [40, 112, 77], value);
+  const shaped = clamp((value - 0.12) / 0.76);
+  if (shaped < 0.45) return mix([218, 182, 83], [179, 168, 105], shaped / 0.45);
+  return mix([179, 168, 105], [22, 115, 80], (shaped - 0.45) / 0.55);
 }
 
 function windColor(vx: number, vy: number, x: number, y: number, width: number, height: number, water: boolean): [number, number, number] {
@@ -207,23 +244,136 @@ function drawRivers(ctx: CanvasRenderingContext2D, world: PrimaryWorld, theme: M
   ctx.lineJoin = 'round';
   for (const river of world.rivers) {
     if (river.path.length < 8) continue;
-    ctx.beginPath();
-    river.path.forEach((index, step) => {
-      const x = (index % width) * scaleX;
-      const y = Math.floor(index / width) * scaleY;
-      if (step === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.lineWidth = Math.max(1.6, Math.min(4.2, river.path.length / 58) * Math.max(scaleX, scaleY));
+    const segments = splitWrappedRiverPath(river.path, width, scaleX, scaleY);
+    ctx.lineWidth = Math.max(2.4, Math.min(5.6, river.path.length / 44) * Math.max(scaleX, scaleY));
     ctx.strokeStyle = theme.colors.riverShadow;
-    ctx.globalAlpha = 0.72;
-    ctx.stroke();
-    ctx.lineWidth = Math.max(0.9, Math.min(2.6, river.path.length / 92) * Math.max(scaleX, scaleY));
+    ctx.globalAlpha = 0.82;
+    for (const points of segments) {
+      drawSmoothPath(ctx, points);
+      ctx.stroke();
+    }
+    ctx.lineWidth = Math.max(1.25, Math.min(3.2, river.path.length / 70) * Math.max(scaleX, scaleY));
     ctx.strokeStyle = theme.colors.river;
-    ctx.globalAlpha = 0.95;
-    ctx.stroke();
+    ctx.globalAlpha = 1;
+    for (const points of segments) {
+      drawSmoothPath(ctx, points);
+      ctx.stroke();
+    }
   }
   ctx.restore();
+}
+
+function drawRiverChannels(ctx: CanvasRenderingContext2D, world: PrimaryWorld, theme: MapTheme, targetWidth: number, targetHeight: number): void {
+  const { width, height } = world.mapModel.resolution;
+  const scaleX = targetWidth / width;
+  const scaleY = targetHeight / height;
+  const scale = Math.max(scaleX, scaleY);
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  ctx.globalAlpha = 0.62;
+  ctx.strokeStyle = theme.colors.riverShadow;
+  ctx.lineWidth = Math.max(1.4, 2.5 * scale);
+  drawRiverChannelSegments(ctx, world, width, height, scaleX, scaleY);
+
+  ctx.globalAlpha = 0.86;
+  ctx.strokeStyle = theme.colors.river;
+  ctx.lineWidth = Math.max(0.75, 1.35 * scale);
+  drawRiverChannelSegments(ctx, world, width, height, scaleX, scaleY);
+  ctx.restore();
+}
+
+function drawRiverChannelSegments(
+  ctx: CanvasRenderingContext2D,
+  world: PrimaryWorld,
+  width: number,
+  height: number,
+  scaleX: number,
+  scaleY: number
+): void {
+  ctx.beginPath();
+  for (let index = 0; index < world.layers.river.length; index += 1) {
+    const strength = world.layers.river[index];
+    if (strength <= 0.08 || world.layers.water[index] === 1) continue;
+    const next = downhillRiverNeighbor(world, index, width, height);
+    if (next === index) continue;
+    const xCell = index % width;
+    const nextXCell = next % width;
+    if (Math.abs(nextXCell - xCell) > 2) continue;
+    const x = (index % width + 0.5) * scaleX;
+    const y = (Math.floor(index / width) + 0.5) * scaleY;
+    const nextX = (next % width + 0.5) * scaleX;
+    const nextY = (Math.floor(next / width) + 0.5) * scaleY;
+    ctx.moveTo(x, y);
+    ctx.lineTo(nextX, nextY);
+  }
+  ctx.stroke();
+}
+
+function downhillRiverNeighbor(world: PrimaryWorld, index: number, width: number, height: number): number {
+  const x = index % width;
+  const y = Math.floor(index / width);
+  let best = index;
+  let bestScore = world.layers.elevation[index] - world.layers.river[index] * 0.04;
+  for (let oy = -1; oy <= 1; oy += 1) {
+    const yy = y + oy;
+    if (yy < 0 || yy >= height) continue;
+    for (let ox = -1; ox <= 1; ox += 1) {
+      if (ox === 0 && oy === 0) continue;
+      const xx = (x + ox + width) % width;
+      const candidate = yy * width + xx;
+      if (world.layers.water[candidate] === 1) return candidate;
+      if (world.layers.river[candidate] <= 0.04) continue;
+      const score = world.layers.elevation[candidate] - world.layers.river[candidate] * 0.04;
+      if (score < bestScore) {
+        best = candidate;
+        bestScore = score;
+      }
+    }
+  }
+  return best;
+}
+
+function splitWrappedRiverPath(
+  path: number[],
+  width: number,
+  scaleX: number,
+  scaleY: number
+): Array<Array<{ x: number; y: number }>> {
+  const segments: Array<Array<{ x: number; y: number }>> = [];
+  let current: Array<{ x: number; y: number }> = [];
+  let previousX: number | undefined;
+
+  for (const index of path) {
+    const cellX = index % width;
+    if (previousX !== undefined && Math.abs(cellX - previousX) > width / 2) {
+      if (current.length > 1) segments.push(current);
+      current = [];
+    }
+    current.push({
+      x: (cellX + 0.5) * scaleX,
+      y: (Math.floor(index / width) + 0.5) * scaleY
+    });
+    previousX = cellX;
+  }
+
+  if (current.length > 1) segments.push(current);
+  return segments;
+}
+
+function drawSmoothPath(ctx: CanvasRenderingContext2D, points: Array<{ x: number; y: number }>): void {
+  if (points.length === 0) return;
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  if (points.length === 1) return;
+  for (let i = 1; i < points.length - 1; i += 1) {
+    const midpointX = (points[i].x + points[i + 1].x) / 2;
+    const midpointY = (points[i].y + points[i + 1].y) / 2;
+    ctx.quadraticCurveTo(points[i].x, points[i].y, midpointX, midpointY);
+  }
+  const last = points[points.length - 1];
+  ctx.lineTo(last.x, last.y);
 }
 
 function drawPlateOverlay(ctx: CanvasRenderingContext2D, world: PrimaryWorld, targetWidth: number, targetHeight: number): void {
@@ -261,11 +411,16 @@ function parseHex(hex: string): [number, number, number] {
 }
 
 function mix(a: [number, number, number], b: [number, number, number], t: number): [number, number, number] {
+  const amount = clamp(t);
   return [
-    Math.round(a[0] + (b[0] - a[0]) * t),
-    Math.round(a[1] + (b[1] - a[1]) * t),
-    Math.round(a[2] + (b[2] - a[2]) * t)
+    Math.round(a[0] + (b[0] - a[0]) * amount),
+    Math.round(a[1] + (b[1] - a[1]) * amount),
+    Math.round(a[2] + (b[2] - a[2]) * amount)
   ];
+}
+
+function clamp(value: number): number {
+  return Math.max(0, Math.min(1, value));
 }
 
 function clampMagnitude(x: number, y: number): number {
@@ -280,6 +435,13 @@ function minMax(values: Float32Array): [number, number] {
     if (value > max) max = value;
   }
   return [min, max];
+}
+
+function percentileRange(values: Float32Array, lowPercentile: number, highPercentile: number): [number, number] {
+  const sorted = Array.from(values).sort((a, b) => a - b);
+  const low = sorted[Math.max(0, Math.min(sorted.length - 1, Math.floor(sorted.length * lowPercentile)))];
+  const high = sorted[Math.max(0, Math.min(sorted.length - 1, Math.floor(sorted.length * highPercentile)))];
+  return low === high ? minMax(values) : [low, high];
 }
 
 function escapeXml(value: string): string {

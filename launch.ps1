@@ -5,16 +5,41 @@ param(
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $logPath = Join-Path $root ".vite-dev.log"
-$url = "http://127.0.0.1:$Port/"
 
 Set-Location $root
+
+function Test-WorldForgeUrl {
+  param([string]$TargetUrl)
+
+  try {
+    $response = Invoke-WebRequest -Uri $TargetUrl -UseBasicParsing -TimeoutSec 2
+    return ($response.StatusCode -eq 200 -and $response.Content -match "<title>World Forge</title>")
+  } catch {
+    return $false
+  }
+}
+
+function Test-PortListening {
+  param([int]$TargetPort)
+
+  $listener = Get-NetTCPConnection -LocalPort $TargetPort -State Listen -ErrorAction SilentlyContinue
+  return [bool]$listener
+}
 
 if (-not (Test-Path -LiteralPath (Join-Path $root "node_modules"))) {
   Write-Host "Installing dependencies..."
   npm install
 }
 
-$listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+$requestedPort = $Port
+while ((Test-PortListening -TargetPort $Port) -and -not (Test-WorldForgeUrl -TargetUrl "http://127.0.0.1:$Port/")) {
+  Write-Host "Port $Port is already serving another app. Trying $($Port + 1)..."
+  $Port += 1
+}
+
+$url = "http://127.0.0.1:$Port/"
+$listener = Test-PortListening -TargetPort $Port
+
 if (-not $listener) {
   if (Test-Path -LiteralPath $logPath) {
     Remove-Item -LiteralPath $logPath -Force
@@ -22,7 +47,7 @@ if (-not $listener) {
 
   Write-Host "Starting World Forge UI on $url"
   Start-Process -FilePath "cmd.exe" `
-    -ArgumentList "/c", "npm run dev -- --port $Port > .vite-dev.log 2>&1" `
+    -ArgumentList "/c", "npm run dev -- --port $Port --strictPort > .vite-dev.log 2>&1" `
     -WorkingDirectory $root `
     -WindowStyle Hidden
 } else {
@@ -33,7 +58,7 @@ $ready = $false
 for ($attempt = 0; $attempt -lt 30; $attempt += 1) {
   try {
     $response = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 2
-    if ($response.StatusCode -eq 200) {
+    if ($response.StatusCode -eq 200 -and $response.Content -match "<title>World Forge</title>") {
       $ready = $true
       break
     }
@@ -51,4 +76,8 @@ if (-not $ready) {
 }
 
 Start-Process $url
-Write-Host "World Forge UI opened at $url"
+if ($Port -ne $requestedPort) {
+  Write-Host "World Forge UI opened at $url because port $requestedPort was in use by another app."
+} else {
+  Write-Host "World Forge UI opened at $url"
+}

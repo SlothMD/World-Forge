@@ -1,6 +1,6 @@
 version: 1
 schema: refs/schemas/schemaRegistry.yaml
-updated: 2026-06-24
+updated: 2026-06-25
 open_questions:
   - id: final-product-name
     status: open
@@ -14,3 +14,6 @@ open_questions:
   - id: first-structured-export-profile
     status: open
     question: Slice 4 needs a first structured export target selected before implementation, such as GeoJSON, CSV/tile data, Markdown summary, Godot, Tiled, Civ-like, or VTT.
+  - id: global-topology-choice
+    status: resolved
+    question: Cubed-sphere topology is the current authoritative representation for generation; geodesic/icosphere can be revisited only if projection or equal-area artifacts justify a migration.
