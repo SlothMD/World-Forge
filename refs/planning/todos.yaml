@@ -34,6 +34,16 @@ todos:
     status: open
     area: generation
     summary: Add layered noise and boundary perturbation so continents, mountains, and climate zones are not dominated by straight Voronoi plate geometry.
+  - id: add-terrain-evolution-aging
+    status: open
+    area: generation
+    priority: high
+    summary: Add planet-age-driven terrain evolution after tectonic uplift, including thermal weathering, hydraulic erosion approximation, sediment/deposition, basin shaping, and final hydrology over aged terrain.
+    notes:
+      - High-value naturalism feature; should happen before deeper visual polish.
+      - Young worlds should preserve sharper uplift and rougher mountains.
+      - Older worlds should have more rounded terrain, mature drainage basins, coastal shelves, and sedimented lowlands.
+      - Prioritize plausible, cohesive world feel over first-pass performance; add fallback heuristics only when bottlenecks are measured.
   - id: high-res-generation-downsample
     status: open
     area: rendering
