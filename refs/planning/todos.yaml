@@ -29,11 +29,19 @@ todos:
   - id: smooth-map-output
     status: open
     area: rendering
-    summary: Add smoothing passes for elevation, water masks, and biome/wetness classification to reduce chunky geometry and speckled coastlines.
+    summary: Add post-process smoothing passes for elevation, water masks, and biome/wetness classification to reduce chunky geometry and speckled coastlines.
+  - id: add-terrain-noise-detail
+    status: open
+    area: generation
+    summary: Add layered noise and boundary perturbation so continents, mountains, and climate zones are not dominated by straight Voronoi plate geometry.
+  - id: high-res-generation-downsample
+    status: open
+    area: rendering
+    summary: Support high internal generation/export resolutions such as 2048x1024 or 4096x2048, then downsample for responsive preview rendering.
   - id: improve-river-shape
     status: open
     area: hydrology
-    summary: Replace straight fallback river paths with meandering drainage paths that still validate as downhill.
+    summary: Replace straight fallback river paths with noise-influenced meandering drainage paths that still validate as downhill.
   - id: split-resolution-controls
     status: open
     area: ui
