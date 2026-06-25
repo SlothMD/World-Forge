@@ -17,3 +17,5 @@ Near-term quality pipeline should become:
 This should reduce seam handling, polar artifacts, chunky geometric look, and speckled coastline feathering more effectively than simply increasing preview canvas size.
 
 Generation quality principle: prioritize plausible, cohesive, natural-looking worlds over first-pass performance. Performance presets, fallback heuristics, and lower-quality preview modes should be added in response to measured bottlenecks rather than driving the initial terrain model.
+
+Tile-map exports should be post-generation derivations. A tile profile should consume generated topology/world facts, choose a target tile grid and size preset, classify each tile into terrain/features, and emit a separate tile dataset with its own profile metadata. Civ-style tile output should start as one profile over the generic tile abstraction rather than becoming part of primary world generation.

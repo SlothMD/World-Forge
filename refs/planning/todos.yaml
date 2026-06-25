@@ -145,3 +145,15 @@ todos:
       - Clouds and atmosphere are visual layers over canonical world data.
       - Sun/moon positions should use generated solar-system fields where available and remain deterministic by seed/time.
       - Day/night cycle should affect lighting only unless/until climate simulation consumes time-of-day.
+  - id: add-post-generate-tile-map
+    status: open
+    area: export
+    priority: high
+    summary: Add a post-generation action that derives a configurable tiled map from the generated world.
+    notes:
+      - UI should expose a button after world generation, separate from primary planet generation, so users can generate tile abstractions on demand.
+      - Tile map size should be configurable with custom width/height and presets matching Civ 7 map sizes where legally/practically appropriate.
+      - First tile profile should target Civ-style terrain abstraction, starting with Civ 7 terrain types and features as the initial mapping vocabulary.
+      - Tile generation should resample authoritative topology/world facts rather than re-generating a separate world.
+      - Output should preserve seed, source world id, tile profile, tile dimensions, source projection/topology metadata, and terrain/feature legend.
+      - Keep this as a generic tile export/profile system; do not hardwire the core generator to Civ-specific gameplay rules.

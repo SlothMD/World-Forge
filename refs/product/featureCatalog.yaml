@@ -20,3 +20,6 @@ features:
   - id: future-export-profiles
     status: deferred
     summary: Add GeoJSON, CSV/tile, Godot, Tiled, Civ-like, and VTT export profiles after MVP.
+  - id: post-generate-tile-map
+    status: planned
+    summary: Generate a configurable tiled abstraction from an existing generated world, with Civ 7 size presets and initial Civ-style terrain/feature mapping.
