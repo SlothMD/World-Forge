@@ -10,6 +10,16 @@ Start points:
 
 ## MVP App
 
+Launch on Windows:
+
+```powershell
+.\launch.ps1
+```
+
+or double-click `launch.bat`.
+
+Manual start:
+
 ```powershell
 npm install
 npm run dev
