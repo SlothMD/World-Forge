@@ -3,13 +3,18 @@ schema: refs/schemas/schemaRegistry.yaml
 updated: 2026-06-24
 commands:
   - id: validate-refs-initialized
-    command: python refs/tools/validate_refs.py --mode initialized
+    command: py -3.11 refs/tools/validate_refs.py --mode initialized
     purpose: Validate the initialized project-memory harness.
-  - id: future-typecheck
+    status: active
+  - id: typecheck
     command: npm run typecheck
-    purpose: Run TypeScript type checks after package scaffolding exists.
-    status: planned
-  - id: future-tests
+    purpose: Run TypeScript type checks.
+    status: active
+  - id: tests
     command: npm test
-    purpose: Run unit and golden seed tests after package scaffolding exists.
-    status: planned
+    purpose: Run unit and golden seed tests.
+    status: active
+  - id: tauri-build
+    command: npm run tauri:build
+    purpose: Build the Tauri desktop executable and Windows installers.
+    status: active

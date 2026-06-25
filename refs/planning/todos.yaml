@@ -27,15 +27,15 @@ todos:
     area: testing
     summary: Add deterministic fixtures covering default, dry, wet, hot, cold, high-ocean, low-ocean, and mountain-heavy worlds.
   - id: smooth-map-output
-    status: open
+    status: done
     area: rendering
     summary: Add post-process smoothing passes for elevation, water masks, and biome/wetness classification to reduce chunky geometry and speckled coastlines.
   - id: add-terrain-noise-detail
-    status: open
+    status: done
     area: generation
     summary: Add layered noise and boundary perturbation so continents, mountains, and climate zones are not dominated by straight Voronoi plate geometry.
   - id: add-terrain-evolution-aging
-    status: open
+    status: done
     area: generation
     priority: high
     summary: Add planet-age-driven terrain evolution after tectonic uplift, including thermal weathering, hydraulic erosion approximation, sediment/deposition, basin shaping, and final hydrology over aged terrain.
@@ -45,14 +45,14 @@ todos:
       - Older worlds should have more rounded terrain, mature drainage basins, coastal shelves, and sedimented lowlands.
       - Prioritize plausible, cohesive world feel over first-pass performance; add fallback heuristics only when bottlenecks are measured.
   - id: high-res-generation-downsample
-    status: open
+    status: done
     area: rendering
     summary: Support high internal generation/export resolutions such as 2048x1024 or 4096x2048, then downsample for responsive preview rendering.
   - id: improve-river-shape
-    status: open
+    status: done
     area: hydrology
     summary: Replace straight fallback river paths with noise-influenced meandering drainage paths that still validate as downhill.
   - id: split-resolution-controls
-    status: open
+    status: done
     area: ui
     summary: Separate generation resolution, display scale, and export resolution controls.

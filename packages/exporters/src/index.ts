@@ -44,8 +44,9 @@ export async function importWforge(file: File): Promise<WorldProject> {
 }
 
 export function serializeProject(project: WorldProject) {
+  const { diagnostics, ...serializableProject } = project;
   return {
-    ...project,
+    ...serializableProject,
     primaryWorld: {
       ...project.primaryWorld,
       layers: serializeLayers(project.primaryWorld.layers, project.primaryWorld.mapModel.resolution, project.primaryWorld.mapModel.projection),
@@ -106,5 +107,6 @@ function minMax(values: number[]): [number, number] {
 function unitsForLayer(layerType: string): string | undefined {
   if (layerType === 'temperature') return 'C';
   if (layerType === 'wetness') return '0-1';
+  if (layerType === 'windX' || layerType === 'windY' || layerType === 'currentX' || layerType === 'currentY') return '-1..1 vector component';
   return undefined;
 }

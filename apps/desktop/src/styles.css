@@ -141,10 +141,10 @@ select {
 }
 
 .range-control {
-  align-items: center;
+  align-items: start;
   display: grid;
   gap: 5px;
-  grid-template-columns: 92px 1fr 1fr 32px;
+  grid-template-columns: 82px minmax(0, 1fr) 86px;
 }
 
 .range-control span {
@@ -152,8 +152,24 @@ select {
   font-weight: 700;
 }
 
-.range-control small {
+.range-control output {
   color: #656963;
+  font-size: 12px;
+  line-height: 18px;
+  text-align: right;
+}
+
+.dual-slider {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dual-slider input[type="range"] {
+  accent-color: #2c7da0;
+  height: 16px;
+  padding: 0;
+  width: 100%;
 }
 
 .map-pane {
@@ -189,6 +205,10 @@ select {
   padding: 4px 8px;
 }
 
+.layer-toggles select {
+  min-height: 32px;
+}
+
 .file-button input {
   height: 1px;
   opacity: 0;
@@ -206,6 +226,7 @@ select {
   min-height: 0;
   overflow: auto;
   padding: 8px;
+  position: relative;
 }
 
 canvas {
@@ -218,6 +239,19 @@ canvas {
   max-width: 100%;
   object-fit: contain;
   width: 100%;
+}
+
+.generating-overlay {
+  align-items: center;
+  background: rgba(31, 39, 38, 0.72);
+  color: #f7f2e6;
+  display: flex;
+  font-weight: 700;
+  inset: 0;
+  justify-content: center;
+  letter-spacing: 0;
+  position: fixed;
+  z-index: 2;
 }
 
 .summary h2,

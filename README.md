@@ -34,4 +34,18 @@ npm run validate
 npm run build
 ```
 
+Generation benchmark:
+
+```powershell
+npm run benchmark:generation
+```
+
+Desktop packaging:
+
+```powershell
+npm run tauri:build
+```
+
+The generator records per-phase diagnostics on generated projects so current runtime hotspots can be inspected from the app summary and benchmark output.
+
 Do not store secrets or machine-local credentials in this repository.

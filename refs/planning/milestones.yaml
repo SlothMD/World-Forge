@@ -3,7 +3,7 @@ schema: refs/schemas/schemaRegistry.yaml
 updated: 2026-06-24
 milestones:
   - id: slice-0
-    status: planned
+    status: done
     target: technical proof of concept
     summary: Deterministic generation and basic rendering/export path.
     exit_criteria:
@@ -11,14 +11,14 @@ milestones:
       - World wraps horizontally.
       - PNG and JSON export work.
   - id: slice-1
-    status: planned
+    status: done
     target: planet foundation
     summary: Plausible planet-scale terrain foundation.
     exit_criteria:
       - Continents and mountain ranges look intentional.
       - Project can be saved and reopened.
   - id: slice-2
-    status: planned
+    status: done
     target: climate and hydrology
     summary: Natural-feeling climate, rivers, ice, and biome placement.
     exit_criteria:
@@ -26,7 +26,7 @@ milestones:
       - Rivers flow downhill.
       - Ice and deserts appear plausibly.
   - id: slice-3
-    status: planned
+    status: done
     target: export-ready MVP
     summary: Usable local-first app with required exports and project packages.
     exit_criteria:

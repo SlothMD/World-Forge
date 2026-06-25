@@ -17,6 +17,7 @@ export type ParameterRanges = {
   orbitalEccentricity: NumericRange;
   sizeClass: NumericRange;
   moonCount: NumericRange;
+  impactFrequency: NumericRange;
 };
 
 export type SelectedValues = {
@@ -29,6 +30,7 @@ export type SelectedValues = {
   orbitalEccentricity: number;
   sizeClass: number;
   moonCount: number;
+  impactFrequency: number;
   oceanTolerancePercentagePoints: number;
 };
 
@@ -126,6 +128,10 @@ export type MapLayers = {
   ice: Uint8Array;
   river: Float32Array;
   lakes: Uint8Array;
+  windX: Float32Array;
+  windY: Float32Array;
+  currentX: Float32Array;
+  currentY: Float32Array;
 };
 
 export type SerializableLayer = {
@@ -175,6 +181,14 @@ export type WorldMetrics = {
   };
 };
 
+export type GenerationDiagnostics = {
+  totalMs: number;
+  phases: Array<{
+    name: string;
+    ms: number;
+  }>;
+};
+
 export type WorldProject = {
   projectId: string;
   projectName: string;
@@ -188,6 +202,7 @@ export type WorldProject = {
   solarSystem: SolarSystem;
   primaryWorld: PrimaryWorld;
   metrics: WorldMetrics;
+  diagnostics?: GenerationDiagnostics;
   exports: {
     packageExtension: '.wforge';
     supportedFormats: Array<'png' | 'svg' | 'json' | 'wforge'>;
@@ -223,7 +238,8 @@ export const defaultParameterRanges: ParameterRanges = {
   axialTiltDeg: { min: 10, max: 32, unit: 'deg' },
   orbitalEccentricity: { min: 0, max: 0.08 },
   sizeClass: { min: 0.85, max: 1.15 },
-  moonCount: { min: 0, max: 3 }
+  moonCount: { min: 0, max: 3 },
+  impactFrequency: { min: 0.6, max: 1.4 }
 };
 
 export function createDefaultConfig(seed = 'earthlike-default-001', resolution: Resolution = { width: 512, height: 256 }): GenerationConfig {

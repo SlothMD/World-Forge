@@ -8,7 +8,7 @@ integrations:
       - project save/load
       - exports
     config_source: user-selected paths
-    status: planned
+    status: active
   - id: vtt-engine-game-exports
     mode: future export profiles
     required_for:

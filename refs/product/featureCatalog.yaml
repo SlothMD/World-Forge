@@ -3,19 +3,19 @@ schema: refs/schemas/schemaRegistry.yaml
 updated: 2026-06-24
 features:
   - id: deterministic-generation
-    status: planned
+    status: active
     summary: Same seed and config reproduce the same world data.
   - id: solar-system-context
-    status: planned
+    status: active
     summary: Generate star, system age, major bodies, primary world placement, moons, visible bodies, and simple moon tide/climate influence.
   - id: primary-world-map
-    status: planned
+    status: active
     summary: Generate one detailed primary planet with plate-influenced elevation, water, climate, hydrology, biomes, and ice.
   - id: project-package
-    status: planned
+    status: active
     summary: Save and reopen zipped .wforge packages containing manifest and layer data.
   - id: core-exports
-    status: planned
+    status: active
     summary: Export PNG, simplified SVG, and structured JSON.
   - id: future-export-profiles
     status: deferred

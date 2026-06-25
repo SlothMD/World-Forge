@@ -6,11 +6,12 @@ stack:
     - TypeScript
     - Rust optional post-profiling
   frameworks:
-    - Tauri planned for desktop shell
-    - React, Svelte, or Vue undecided for frontend
+    - Tauri v2 desktop shell
+    - React frontend
   runtimes:
     - Node.js for tooling and tests
-  package_managers: []
+  package_managers:
+    - npm
   databases: []
   deployment_targets:
     - local desktop app

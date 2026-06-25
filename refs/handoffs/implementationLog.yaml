@@ -2,6 +2,37 @@ version: 1
 schema: refs/schemas/schemaRegistry.yaml
 updated: 2026-06-24
 entries:
+  - date: 2026-06-25
+    summary: Added generation diagnostics, benchmark tooling, and optimized core generation hotspots while reducing ice-world bias.
+    files:
+      - packages/generator-core/src/index.ts
+      - packages/shared/src/index.ts
+      - packages/exporters/src/index.ts
+      - apps/desktop/src/main.tsx
+      - scripts/benchmark-generation.ts
+      - tsconfig.scripts.json
+      - package.json
+    validation:
+      - npm run validate
+      - npm run build
+      - npm run benchmark:generation
+  - date: 2026-06-25
+    summary: Completed terrain naturalism backlog, split generation/preview/export resolution controls, exposed ocean tolerance, and added Tauri v2 desktop packaging.
+    files:
+      - apps/desktop/src/main.tsx
+      - packages/generator-core/src/index.ts
+      - packages/generator-core/src/generator.test.ts
+      - packages/renderer/src/index.ts
+      - package.json
+      - src-tauri
+      - refs/planning/todos.yaml
+      - refs/planning/roadmap.yaml
+    validation:
+      - npm run typecheck
+      - npm test
+      - npm run build
+      - py -3.11 refs/tools/validate_refs.py --mode initialized
+      - npm run tauri:build
   - date: 2026-06-24
     summary: Implemented browser-testable MVP with deterministic generation, map rendering, required exports, .wforge roundtrip, and validation.
     files:

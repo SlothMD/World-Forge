@@ -35,6 +35,30 @@ describe('world generation MVP invariants', () => {
     expect(project.metrics.validation.riverPathsValid).toBe(true);
     expect(project.primaryWorld.rivers.length).toBeGreaterThan(0);
     expect(project.primaryWorld.layers.biomes.length).toBe(config.outputResolution.width * config.outputResolution.height);
+    expect(project.primaryWorld.layers.windX.length).toBe(config.outputResolution.width * config.outputResolution.height);
+    expect(project.primaryWorld.layers.currentX.length).toBe(config.outputResolution.width * config.outputResolution.height);
+  });
+
+  it('generates non-empty atmospheric and ocean vector fields', () => {
+    const project = generateProject(createDefaultConfig('climate-vector-001', { width: 256, height: 128 }));
+    expect(layerHasSignal(project.primaryWorld.layers.windX)).toBe(true);
+    expect(layerHasSignal(project.primaryWorld.layers.windY)).toBe(true);
+    expect(layerHasSignal(project.primaryWorld.layers.currentX)).toBe(true);
+    expect(layerHasSignal(project.primaryWorld.layers.currentY)).toBe(true);
+  });
+
+  it('uses world age to change impact and weathering terrain evolution', () => {
+    const youngConfig = createDefaultConfig('terrain-aging-001', { width: 256, height: 128 });
+    const oldConfig = createDefaultConfig('terrain-aging-001', { width: 256, height: 128 });
+    youngConfig.selectedValues = { systemAgeGy: 0.8 };
+    oldConfig.selectedValues = { systemAgeGy: 8.5 };
+
+    const young = generateProject(youngConfig);
+    const old = generateProject(oldConfig);
+
+    expect(hashLayer(young.primaryWorld.layers.elevation)).not.toBe(hashLayer(old.primaryWorld.layers.elevation));
+    expect(old.metrics.validation.oceanWithinTolerance).toBe(true);
+    expect(old.metrics.validation.riverPathsValid).toBe(true);
   });
 
   it('exports structured JSON and simplified SVG', () => {
@@ -67,4 +91,17 @@ function hashText(value: string): string {
     h = Math.imul(h, 16777619);
   }
   return (h >>> 0).toString(16);
+}
+
+function hashLayer(layer: Float32Array): string {
+  let h = 2166136261;
+  for (const value of layer) {
+    h ^= Math.round(value * 100000);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(16);
+}
+
+function layerHasSignal(layer: Float32Array): boolean {
+  return layer.some((value) => Math.abs(value) > 0.01);
 }

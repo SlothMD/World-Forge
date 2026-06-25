@@ -16,6 +16,8 @@ node_modules/
 dist/
 build/
 out/
+src-tauri/target/
+src-tauri/gen/schemas/
 .vite-dev.log
 mvp-smoke.png
 *.tsbuildinfo
