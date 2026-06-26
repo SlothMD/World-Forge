@@ -1,6 +1,6 @@
 version: 1
 schema: refs/schemas/schemaRegistry.yaml
-updated: 2026-06-24
+updated: 2026-06-26
 features:
   - id: deterministic-generation
     status: active
@@ -21,5 +21,8 @@ features:
     status: deferred
     summary: Add GeoJSON, CSV/tile, Godot, Tiled, Civ-like, and VTT export profiles after MVP.
   - id: post-generate-tile-map
-    status: planned
-    summary: Generate a configurable tiled abstraction from an existing generated world, with Civ 7 size presets and initial Civ-style terrain/feature mapping.
+    status: active
+    summary: Generate a configurable hex tiled abstraction from an existing generated world, with editable Civ 7-style size presets and initial Civ-style terrain/feature mapping.
+  - id: content-configuration
+    status: active
+    summary: Configure content sets for biomes, tiles, features, and resources before the generator/exporters fully consume data-driven definitions.

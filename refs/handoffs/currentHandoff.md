@@ -54,6 +54,9 @@ Implemented pieces:
 - Optimized High-resolution generation by replacing full-array percentile sorts with fixed-bin histogram percentiles, splitting crust-field generation into its own diagnostic phase, and skipping continent-lobe math outside each region influence.
 - Generate now runs through a desktop/web Worker after startup and shows an estimated progress indicator, keeping the UI responsive during long High-resolution runs.
 - Biome legend now includes deep ocean, ocean, and shallow shelf colors. Shallow shelf color was shifted away from ambiguous cyan, and river overlays stop at water cells in map/globe presentation.
+- Added first post-generation hex tile export slice. The exporter can emit an aligned pointy-top odd-row hex-grid SVG and a structured hex tile JSON dataset sampled from topology facts, with editable dimensions, Civ 7-style size presets, and a configurable Civ 7-style terrain/feature profile. Hex tile export controls now live in the right panel under a `Hex Tile Export` tab alongside the `World` tab.
+- App startup no longer auto-generates the default world. The seed/config controls are prefilled, the map starts in an empty ready state, and `.wforge` imports still populate the project immediately.
+- Added a left-panel configuration gear that opens a content configuration modal. Initial configurable categories are Biomes, Tiles, Features, and Resources, each with sets/packs, default set marking, member browsing, copy-to-set behavior, mapping-rule display, preview colors, and image/texture/icon attachment slots. Defaults capture the current biome rules, Civ 7-style tile/feature vocabularies, and an initial Civ 7 resource-name pack.
 
 Important architecture change:
 
@@ -79,6 +82,8 @@ Recent local validation notes:
 - After the primordial/plate-history pass, high-resolution 2048x1024 diagnostic for seed `1001001` produced about 70.5% ocean, 51 named rivers, no basin-terminating named rivers, and seven substantial landmasses; generation took about 36.3 seconds locally. `topology.terrain.elevation` is now the major hotspot.
 - After the first High-resolution optimization pass, seed `1001001` at `2048x1024` produced 69.7% ocean, 1.0% ice, and 51 named rivers in about 23.7 seconds locally. Current measured hotspots are `topology.terrain.crust-fields` at about 7.8 seconds and `topology.hydrology` at about 4.7 seconds.
 - `npm run validate` is blocked locally until PyYAML is installed for `refs/tools/validate_refs.py`.
+- `npm run typecheck`, `npm test`, and `npm run build` pass after the hex tile export slice and tab move. Test suite currently has 20 passing tests. Playwright smoke verified the Hex Tile Export tab and first-row SVG hex alignment.
+- Playwright smoke verified empty startup without generation, opening the content configuration modal, and generating from the empty startup state.
 
 ## Known Gaps
 
@@ -95,6 +100,8 @@ Other flagged landmines:
 - Fallbacks becoming hidden rules: performance and cleanup fallbacks should stay named, deterministic, measured, and tested.
 - Export/game-rule coupling: resources, Civ-like data, VTT assumptions, and engine formats should remain export profiles over neutral world facts.
 - Simplified moon/tide model: acceptable for now only if orbital fields remain replaceable by richer modeling.
+- Civ 7 exact map-size dimensions and mod-script hooks still need verification against shipped/modding data. Current built-in tile presets are editable Civ 7-style starter presets, not a claim of exact Firaxis internal dimensions.
+- Content configuration is currently scaffolding/state in the app and shared defaults. Generation/export still use the existing hardcoded logic until the planned data-driven cutover.
 
 External reference note:
 
@@ -120,4 +127,11 @@ Current measured hotspots at 2048x1024 are crust-field generation, hydrology pri
 7. Refine topology-native terrain aging/weathering/glaciation with climate feedback loops.
 8. Improve projection sampling from nearest-cell to interpolated topology sampling where visible artifacts appear.
 9. Expand deterministic tests for topology data separately from projected-render/export tests.
-10. Decide final product name, desktop app identifier, package extension, and real app icon assets.
+10. Verify Civ 7 mod data for exact map-size dimensions and map-script APIs, then align the generic hex tile profile with the future in-game generation mod.
+11. Cut generation/export logic over to content configuration sets, starting with biome thresholds and hex tile/profile mapping.
+12. Add missing feature config members: rough, volcano, and tropical.
+13. Hand off secondary moon generation to a background process.
+14. Add globe atmospheric overlay.
+15. Build non-terrestrial terrain sets for moons and worlds outside the habitable zone.
+16. Longer-term: move detailed map finer-detail generation to a background process.
+17. Decide final product name, desktop app identifier, package extension, and real app icon assets.

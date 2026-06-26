@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createDefaultConfig, generateProject } from './index';
-import { exportSvg, exportWforge, importWforge, projectToJson } from '@world-forge/exporters';
+import { exportHexGridSvg, exportHexTileMapJson, exportSvg, exportWforge, generateHexTileMap, importWforge, projectToJson } from '@world-forge/exporters';
 import { buildCubedSphereTopology } from '../../shared/src/index';
 
 const seeds = [
@@ -135,6 +135,32 @@ describe('world generation MVP invariants', () => {
     expect(svg).toContain('Simplified SVG export');
   });
 
+  it('exports a configurable hex tile map derived from topology facts', () => {
+    const project = generateProject(createDefaultConfig('hex-tile-export-001', { width: 128, height: 64 }));
+    const tileMap = generateHexTileMap(project, { width: 18, height: 10, enabledFeatures: ['river', 'wet'] });
+    const json = JSON.parse(exportHexTileMapJson(project, { width: 18, height: 10, enabledFeatures: ['river', 'wet'] }));
+    const svg = exportHexGridSvg(project, { width: 18, height: 10 });
+
+    expect(tileMap.format).toBe('world-forge-hex-tile-map');
+    expect(tileMap.profile.id).toBe('civ7-style-default');
+    expect(tileMap.tiles.length).toBe(180);
+    expect(tileMap.tiles.every((tile) => tile.topologyCell >= 0 && tile.terrainType.length > 0)).toBe(true);
+    expect(tileMap.tiles.every((tile) => tile.features.every((feature) => feature === 'river' || feature === 'wet'))).toBe(true);
+    expect(json.tiles.length).toBe(tileMap.tiles.length);
+    expect(svg.startsWith('<svg')).toBe(true);
+    expect(svg).toContain('<polygon');
+  });
+
+  it('aligns same-row hex SVG polygons without horizontal overlap', () => {
+    const project = generateProject(createDefaultConfig('hex-alignment-001', { width: 128, height: 64 }));
+    const svg = exportHexGridSvg(project, { width: 4, height: 3 });
+    const polygons = [...svg.matchAll(/<polygon points="([^"]+)"/g)].map((match) => polygonBounds(match[1]));
+
+    expect(polygons.length).toBe(12);
+    expect(Math.abs(polygons[1].minX - polygons[0].maxX)).toBeLessThan(0.01);
+    expect(Math.abs(polygons[2].minX - polygons[1].maxX)).toBeLessThan(0.01);
+  });
+
   it('roundtrips a .wforge project package', async () => {
     const project = generateProject(createDefaultConfig('package-smoke-001', { width: 128, height: 64 }));
     const blob = await exportWforge(project);
@@ -205,4 +231,14 @@ function largestLandComponentShare(water: Uint8Array, topologyResolution: number
   const landCells = components.reduce((sum, count) => sum + count, 0);
   if (landCells === 0) return 0;
   return components[0] / landCells;
+}
+
+function polygonBounds(points: string): { minX: number; maxX: number; minY: number; maxY: number } {
+  const coordinates = points.split(' ').map((point) => point.split(',').map(Number));
+  return {
+    minX: Math.min(...coordinates.map(([x]) => x)),
+    maxX: Math.max(...coordinates.map(([x]) => x)),
+    minY: Math.min(...coordinates.map(([, y]) => y)),
+    maxY: Math.max(...coordinates.map(([, y]) => y))
+  };
 }

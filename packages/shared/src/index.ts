@@ -195,6 +195,130 @@ export type SerializableTopologyLayer = {
   data: number[];
 };
 
+export type HexTileBiome = 'marine' | 'tundra' | 'grassland' | 'plains' | 'desert' | 'tropical';
+export type HexTileMorphology = 'flat' | 'rough' | 'mountainous' | 'navigable-river' | 'coastal' | 'ocean' | 'lake';
+export type HexTileFeature = 'vegetated' | 'wet' | 'floodplain' | 'river' | 'snow' | 'ice' | 'aquatic';
+
+export type HexTileProfile = {
+  id: string;
+  label: string;
+  description: string;
+  biomes: HexTileBiome[];
+  morphologies: HexTileMorphology[];
+  features: HexTileFeature[];
+};
+
+export type HexTileMapPreset = {
+  id: string;
+  label: string;
+  width: number;
+  height: number;
+  note: string;
+};
+
+export type HexTileExportConfig = {
+  width: number;
+  height: number;
+  profileId: string;
+  enabledBiomes?: HexTileBiome[];
+  enabledMorphologies?: HexTileMorphology[];
+  enabledFeatures?: HexTileFeature[];
+};
+
+export type HexTile = {
+  id: string;
+  q: number;
+  r: number;
+  longitude: number;
+  latitude: number;
+  topologyCell: number;
+  biome: HexTileBiome;
+  morphology: HexTileMorphology;
+  terrainType: string;
+  features: HexTileFeature[];
+  elevation: number;
+  temperatureC: number;
+  wetness: number;
+  water: boolean;
+};
+
+export type HexTileMap = {
+  format: 'world-forge-hex-tile-map';
+  formatVersion: 1;
+  sourceProjectId: string;
+  sourceWorldId: string;
+  seed: string;
+  generatedAt: string;
+  config: HexTileExportConfig;
+  profile: HexTileProfile;
+  dimensions: {
+    width: number;
+    height: number;
+    orientation: 'pointy-top-odd-r';
+    wrapMode: WrapMode;
+  };
+  source: {
+    topologyKind: TopologyKind;
+    topologyResolution: number;
+    projection: Projection;
+    mapResolution: Resolution;
+  };
+  legend: {
+    biomes: HexTileBiome[];
+    morphologies: HexTileMorphology[];
+    features: HexTileFeature[];
+  };
+  tiles: HexTile[];
+};
+
+export type ContentCategory = 'biomes' | 'tiles' | 'features' | 'resources';
+
+export type ContentAsset = {
+  id: string;
+  label: string;
+  kind: 'preview-color' | 'texture' | 'icon';
+  value: string;
+};
+
+export type ContentRule = {
+  field: string;
+  min?: number;
+  max?: number;
+  equals?: string | number | boolean;
+  includes?: string[];
+  note?: string;
+};
+
+export type ContentMember = {
+  id: string;
+  label: string;
+  description: string;
+  source: string;
+  setIds: string[];
+  rules: ContentRule[];
+  assets: ContentAsset[];
+  tags: string[];
+};
+
+export type ContentSet = {
+  id: string;
+  label: string;
+  description: string;
+  memberIds: string[];
+  isDefault: boolean;
+};
+
+export type ContentCategoryConfig = {
+  id: ContentCategory;
+  label: string;
+  description: string;
+  defaultSetId: string;
+  sets: ContentSet[];
+  members: ContentMember[];
+};
+
+export type ContentLibraryConfig = Record<ContentCategory, ContentCategoryConfig>;
+
 export type PrimaryWorld = {
   id: string;
   name: string;
@@ -280,6 +404,122 @@ export function codeToBiome(code: number): Biome {
   return biomeNames[Math.max(0, Math.min(biomeNames.length - 1, code))];
 }
 
+export const civ7StyleHexTileProfile: HexTileProfile = {
+  id: 'civ7-style-default',
+  label: 'Civ 7-style default',
+  description: 'Generic Civ-style profile using Civilization VII terrain vocabulary: land biomes, terrain morphology, marine tiles, and feature classes.',
+  biomes: ['tundra', 'grassland', 'plains', 'desert', 'tropical', 'marine'],
+  morphologies: ['flat', 'rough', 'mountainous', 'navigable-river', 'coastal', 'ocean', 'lake'],
+  features: ['vegetated', 'wet', 'floodplain', 'river', 'snow', 'ice', 'aquatic']
+};
+
+export const hexTileMapPresets: HexTileMapPreset[] = [
+  { id: 'civ7-style-tiny', label: 'Civ 7-style Tiny', width: 44, height: 28, note: 'Editable starter preset; replace with verified mod-data dimensions when available.' },
+  { id: 'civ7-style-small', label: 'Civ 7-style Small', width: 56, height: 36, note: 'Editable starter preset; replace with verified mod-data dimensions when available.' },
+  { id: 'civ7-style-standard', label: 'Civ 7-style Standard', width: 68, height: 44, note: 'Editable starter preset; replace with verified mod-data dimensions when available.' },
+  { id: 'civ7-style-large', label: 'Civ 7-style Large', width: 80, height: 52, note: 'Editable starter preset; replace with verified mod-data dimensions when available.' },
+  { id: 'civ7-style-huge', label: 'Civ 7-style Huge', width: 96, height: 60, note: 'Editable starter preset; replace with verified mod-data dimensions when available.' }
+];
+
+export const defaultContentLibrary: ContentLibraryConfig = {
+  biomes: {
+    id: 'biomes',
+    label: 'Biomes',
+    description: 'Biome definitions and display assets used by generation and preview rendering.',
+    defaultSetId: 'world-forge-biomes',
+    sets: [
+      {
+        id: 'world-forge-biomes',
+        label: 'World Forge current biomes',
+        description: 'Current code-backed biome set, captured for the data-driven cutover.',
+        memberIds: ['ocean', 'ice-cap', 'tundra', 'desert', 'grassland', 'forest', 'rainforest', 'mountain', 'wetland'],
+        isDefault: true
+      }
+    ],
+    members: [
+      contentMember('ocean', 'Ocean', 'Open water biome.', 'current-generation', ['world-forge-biomes'], '#2f7fa6', [{ field: 'water', equals: true }], ['water']),
+      contentMember('ice-cap', 'Ice cap', 'Permanent ice over water or land.', 'current-generation', ['world-forge-biomes'], '#eef7fb', [{ field: 'ice', equals: true }], ['ice', 'cold']),
+      contentMember('tundra', 'Tundra', 'Cold dry or semi-wet land.', 'current-generation', ['world-forge-biomes'], '#b6c7ad', [{ field: 'temperatureC', max: 4 }, { field: 'water', equals: false }], ['cold']),
+      contentMember('desert', 'Desert', 'Arid land biome.', 'current-generation', ['world-forge-biomes'], '#d6bf72', [{ field: 'wetness', max: 0.22 }, { field: 'water', equals: false }], ['dry']),
+      contentMember('grassland', 'Grassland', 'Default temperate open land.', 'current-generation', ['world-forge-biomes'], '#9bbf6a', [{ field: 'wetness', min: 0.22, max: 0.48 }, { field: 'water', equals: false }], ['temperate']),
+      contentMember('forest', 'Forest', 'Temperate wet vegetated land.', 'current-generation', ['world-forge-biomes'], '#4f8f55', [{ field: 'wetness', min: 0.48 }, { field: 'temperatureC', max: 20 }, { field: 'water', equals: false }], ['vegetated']),
+      contentMember('rainforest', 'Rainforest', 'Hot and very wet vegetated land.', 'current-generation', ['world-forge-biomes'], '#2c6f45', [{ field: 'wetness', min: 0.72 }, { field: 'temperatureC', min: 20 }, { field: 'water', equals: false }], ['vegetated', 'tropical']),
+      contentMember('mountain', 'Mountain', 'High relief land biome.', 'current-generation', ['world-forge-biomes'], '#9d9788', [{ field: 'elevationAboveSeaLevel', min: 0.48 }, { field: 'water', equals: false }], ['highland']),
+      contentMember('wetland', 'Wetland', 'Low wet river, lake, or coastal land.', 'current-generation', ['world-forge-biomes'], '#6f9f78', [{ field: 'wetness', min: 0.62 }, { field: 'river', min: 0.25 }, { field: 'water', equals: false }], ['wet', 'river'])
+    ]
+  },
+  tiles: {
+    id: 'tiles',
+    label: 'Tiles',
+    description: 'Tile terrain packs and map-to-tile rules.',
+    defaultSetId: 'civ7-style-tiles',
+    sets: [
+      {
+        id: 'civ7-style-tiles',
+        label: 'Civ 7-style tiles',
+        description: 'Initial Civ 7-style tile vocabulary used by the hex tile export profile.',
+        memberIds: ['marine', 'tundra-tile', 'grassland-tile', 'plains-tile', 'desert-tile', 'tropical-tile', 'rough', 'mountainous', 'navigable-river'],
+        isDefault: true
+      }
+    ],
+    members: [
+      contentMember('marine', 'Marine', 'Water tile terrain.', 'civ7-style-profile', ['civ7-style-tiles'], '#2f7fa6', [{ field: 'water', equals: true }], ['water']),
+      contentMember('tundra-tile', 'Tundra', 'Cold land tile.', 'civ7-style-profile', ['civ7-style-tiles'], '#b6c7ad', [{ field: 'temperatureC', max: 1 }], ['cold']),
+      contentMember('grassland-tile', 'Grassland', 'Wet temperate land tile.', 'civ7-style-profile', ['civ7-style-tiles'], '#9bbf6a', [{ field: 'wetness', min: 0.46 }], ['land']),
+      contentMember('plains-tile', 'Plains', 'Moderate or dry open land tile.', 'civ7-style-profile', ['civ7-style-tiles'], '#d6bf72', [{ field: 'wetness', min: 0.24, max: 0.46 }], ['land']),
+      contentMember('desert-tile', 'Desert', 'Arid land tile.', 'civ7-style-profile', ['civ7-style-tiles'], '#e1c76f', [{ field: 'wetness', max: 0.24 }], ['dry']),
+      contentMember('tropical-tile', 'Tropical', 'Hot wet land tile.', 'civ7-style-profile', ['civ7-style-tiles'], '#3c8b5f', [{ field: 'temperatureC', min: 21 }, { field: 'wetness', min: 0.52 }], ['hot', 'wet']),
+      contentMember('rough', 'Rough', 'Rough terrain morphology.', 'civ7-style-profile', ['civ7-style-tiles'], '#a99a72', [{ field: 'slope', min: 0.075 }], ['morphology']),
+      contentMember('mountainous', 'Mountainous', 'Mountain terrain morphology.', 'civ7-style-profile', ['civ7-style-tiles'], '#7f7a70', [{ field: 'slope', min: 0.22 }], ['morphology']),
+      contentMember('navigable-river', 'Navigable river', 'River terrain morphology.', 'civ7-style-profile', ['civ7-style-tiles'], '#8fc9d4', [{ field: 'river', min: 0.62 }], ['river', 'morphology'])
+    ]
+  },
+  features: {
+    id: 'features',
+    label: 'Features',
+    description: 'Feature packs and map-to-feature rules.',
+    defaultSetId: 'civ7-style-features',
+    sets: [
+      {
+        id: 'civ7-style-features',
+        label: 'Civ 7-style features',
+        description: 'Initial feature vocabulary used by the hex tile export profile.',
+        memberIds: ['vegetated', 'wet', 'floodplain', 'river-feature', 'snow', 'ice-feature', 'aquatic'],
+        isDefault: true
+      }
+    ],
+    members: [
+      contentMember('vegetated', 'Vegetated', 'Vegetation or forest-like feature.', 'civ7-style-profile', ['civ7-style-features'], '#3f8b52', [{ field: 'wetness', min: 0.52 }], ['land']),
+      contentMember('wet', 'Wet', 'Wetland or saturated terrain feature.', 'civ7-style-profile', ['civ7-style-features'], '#6f9f78', [{ field: 'wetness', min: 0.66 }], ['wet']),
+      contentMember('floodplain', 'Floodplain', 'Low wet river-adjacent feature.', 'civ7-style-profile', ['civ7-style-features'], '#b6b776', [{ field: 'river', min: 0.32 }, { field: 'elevationAboveSeaLevel', max: 0.18 }], ['river']),
+      contentMember('river-feature', 'River', 'Visible river feature.', 'civ7-style-profile', ['civ7-style-features'], '#b0dfe2', [{ field: 'river', min: 0.12 }], ['river']),
+      contentMember('snow', 'Snow', 'Snow cover feature.', 'civ7-style-profile', ['civ7-style-features'], '#eef7fb', [{ field: 'temperatureC', max: -6 }], ['cold']),
+      contentMember('ice-feature', 'Ice', 'Ice feature.', 'civ7-style-profile', ['civ7-style-features'], '#dcecef', [{ field: 'ice', equals: true }], ['cold']),
+      contentMember('aquatic', 'Aquatic', 'Aquatic feature for coast, lake, or marine tiles.', 'civ7-style-profile', ['civ7-style-features'], '#6fb2be', [{ field: 'water', equals: true }], ['water'])
+    ]
+  },
+  resources: {
+    id: 'resources',
+    label: 'Resources',
+    description: 'Resource packs and placement-rule placeholders.',
+    defaultSetId: 'civ7-resources',
+    sets: [
+      {
+        id: 'civ7-resources',
+        label: 'Civ 7 resources',
+        description: 'Initial named resource set for future placement rules and icon attachments.',
+        memberIds: ['cattle', 'fish', 'gold', 'gypsum', 'hardwood', 'hides', 'horses', 'incense', 'iron', 'ivory', 'jade', 'kaolin', 'lapis-lazuli', 'limestone', 'llamas', 'mangoes', 'marble', 'pearls', 'rice', 'rubies', 'salt', 'silk', 'silver', 'tin', 'turtles', 'wild-game', 'wine'],
+        isDefault: true
+      }
+    ],
+    members: [
+      ...['cattle', 'fish', 'gold', 'gypsum', 'hardwood', 'hides', 'horses', 'incense', 'iron', 'ivory', 'jade', 'kaolin', 'lapis-lazuli', 'limestone', 'llamas', 'mangoes', 'marble', 'pearls', 'rice', 'rubies', 'salt', 'silk', 'silver', 'tin', 'turtles', 'wild-game', 'wine'].map((id) =>
+        contentMember(id, titleCase(id), 'Civ 7 resource placeholder. Placement and yield rules are intentionally deferred until the resource cutover.', 'civ7-resource-reference', ['civ7-resources'], '#c9b56b', [], ['resource'])
+      )
+    ]
+  }
+};
+
 export const defaultParameterRanges: ParameterRanges = {
   systemAgeGy: { min: 2.5, max: 7.5, unit: 'Gy' },
   oceanPercentage: { min: 45, max: 72, unit: '%' },
@@ -329,6 +569,39 @@ export function createDefaultConfig(seed = 'earthlike-default-001', resolution: 
 
 export function cloneParameterRanges(ranges: ParameterRanges): ParameterRanges {
   return Object.fromEntries(Object.entries(ranges).map(([key, range]) => [key, { ...range }])) as ParameterRanges;
+}
+
+function contentMember(
+  id: string,
+  label: string,
+  description: string,
+  source: string,
+  setIds: string[],
+  previewColor: string,
+  rules: ContentRule[],
+  tags: string[]
+): ContentMember {
+  return {
+    id,
+    label,
+    description,
+    source,
+    setIds,
+    rules,
+    tags,
+    assets: [
+      {
+        id: `${id}-preview-color`,
+        label: 'Preview color',
+        kind: 'preview-color',
+        value: previewColor
+      }
+    ]
+  };
+}
+
+function titleCase(value: string): string {
+  return value.split('-').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ');
 }
 
 export function layerIndex(x: number, y: number, width: number): number {

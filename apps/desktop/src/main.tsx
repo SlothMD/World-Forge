@@ -1,15 +1,34 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Download, FileJson, FolderOpen, Image, Layers, RefreshCw, Save, Shuffle } from 'lucide-react';
+import { FileJson, FolderOpen, Hexagon, Image, Layers, RefreshCw, Save, Settings, Shuffle, X } from 'lucide-react';
 import * as THREE from 'three';
 import { createDefaultConfig, generateProject } from '@world-forge/generator-core';
-import { exportSvg, exportWforge, importWforge, projectToJson } from '@world-forge/exporters';
+import { exportHexGridSvg, exportHexTileMapJson, exportSvg, exportWforge, importWforge, projectToJson } from '@world-forge/exporters';
 import { MapMode, cleanGameMapTheme, renderWorldToCanvas } from '@world-forge/renderer';
-import { GenerationConfig, NumericRange, ParameterRanges, WorldProject, biomeNames, codeToBiome, parameterControlBounds } from '@world-forge/shared';
+import {
+  GenerationConfig,
+  HexTileFeature,
+  ContentCategory,
+  ContentCategoryConfig,
+  ContentLibraryConfig,
+  ContentMember,
+  ContentRule,
+  NumericRange,
+  ParameterRanges,
+  WorldProject,
+  biomeNames,
+  civ7StyleHexTileProfile,
+  codeToBiome,
+  defaultContentLibrary,
+  hexTileMapPresets,
+  parameterControlBounds
+} from '@world-forge/shared';
 import './styles.css';
 
 type RangeKey = keyof ParameterRanges;
 type ViewMode = 'map' | 'globe';
+type RightPanelTab = 'world' | 'hex';
+type ConfigTab = ContentCategory;
 
 const rangeLabels: Record<RangeKey, string> = {
   systemAgeGy: 'System age',
@@ -44,6 +63,17 @@ const previewResolutionOptions = [
   { label: 'Detailed preview 1024 x 512', width: 1024, height: 512 },
   { label: 'Source resolution', width: 0, height: 0 }
 ];
+
+const defaultHexPreset = hexTileMapPresets.find((preset) => preset.id === 'civ7-style-standard') ?? hexTileMapPresets[0];
+const tileFeatureLabels: Record<HexTileFeature, string> = {
+  vegetated: 'Vegetated',
+  wet: 'Wet',
+  floodplain: 'Floodplain',
+  river: 'Rivers',
+  snow: 'Snow',
+  ice: 'Ice',
+  aquatic: 'Aquatic'
+};
 
 const worldPresets: Array<{ label: string; ranges: Partial<ParameterRanges>; tolerance?: number }> = [
   {
@@ -105,13 +135,21 @@ const worldPresets: Array<{ label: string; ranges: Partial<ParameterRanges>; tol
 function App() {
   const defaultHighConfig = () => createDefaultConfig(defaultSeed, { width: 2048, height: 1024 });
   const [config, setConfig] = useState<GenerationConfig>(() => defaultHighConfig());
-  const [project, setProject] = useState<WorldProject>(() => generateProject(defaultHighConfig()));
+  const [project, setProject] = useState<WorldProject | null>(null);
+  const [contentLibrary, setContentLibrary] = useState<ContentLibraryConfig>(() => structuredClone(defaultContentLibrary));
+  const [configOpen, setConfigOpen] = useState(false);
+  const [configTab, setConfigTab] = useState<ConfigTab>('biomes');
   const [previewResolution, setPreviewResolution] = useState(previewResolutionOptions[1]);
   const [exportResolution, setExportResolution] = useState(resolutionOptions[1]);
+  const [tilePresetId, setTilePresetId] = useState(defaultHexPreset.id);
+  const [tileWidth, setTileWidth] = useState(defaultHexPreset.width);
+  const [tileHeight, setTileHeight] = useState(defaultHexPreset.height);
+  const [tileFeatures, setTileFeatures] = useState<HexTileFeature[]>(civ7StyleHexTileProfile.features);
   const [showPlates, setShowPlates] = useState(false);
   const [showRivers, setShowRivers] = useState(true);
   const [mapMode, setMapMode] = useState<MapMode>('biomes');
   const [viewMode, setViewMode] = useState<ViewMode>('map');
+  const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>('world');
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState(0);
   const generationEstimateRef = useRef(24000);
@@ -159,6 +197,11 @@ function App() {
 
   useEffect(() => {
     if (!canvasRef.current || viewMode !== 'map') return;
+    if (!project) {
+      const ctx = canvasRef.current.getContext('2d');
+      if (ctx) ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      return;
+    }
     const showRiverOverlay = showRivers && mapMode !== 'elevation' && mapMode !== 'heightmap';
     renderWorldToCanvas(canvasRef.current, project, cleanGameMapTheme, {
       rivers: showRiverOverlay,
@@ -180,7 +223,7 @@ function App() {
     const taskId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     generationTaskIdRef.current = taskId;
     generationStartedAtRef.current = performance.now();
-    generationEstimateRef.current = Math.max(3000, project.diagnostics?.totalMs ?? generationEstimateRef.current);
+    generationEstimateRef.current = Math.max(3000, project?.diagnostics?.totalMs ?? generationEstimateRef.current);
     setGenerationProgress(0.02);
     setIsGenerating(true);
     if (workerRef.current) {
@@ -238,12 +281,11 @@ function App() {
 
   const randomizeSeed = () => {
     const seed = String(Math.floor(1000000 + Math.random() * 9000000));
-    const next = { ...config, seed };
-    setConfig(next);
-    generate(next);
+    setConfig({ ...config, seed });
   };
 
   const downloadPng = () => {
+    if (!project) return;
     const canvas = document.createElement('canvas');
     const showRiverOverlay = showRivers && mapMode !== 'elevation' && mapMode !== 'heightmap';
     renderWorldToCanvas(canvas, project, cleanGameMapTheme, {
@@ -259,14 +301,34 @@ function App() {
   };
 
   const downloadJson = () => {
+    if (!project) return;
     downloadBlob(new Blob([projectToJson(project)], { type: 'application/json' }), `${project.projectName}.json`);
   };
 
   const downloadSvg = () => {
+    if (!project) return;
     downloadBlob(new Blob([exportSvg(project)], { type: 'image/svg+xml' }), `${project.projectName}.svg`);
   };
 
+  const tileExportConfig = () => ({
+    width: tileWidth,
+    height: tileHeight,
+    profileId: civ7StyleHexTileProfile.id,
+    enabledFeatures: tileFeatures
+  });
+
+  const downloadHexGridSvg = () => {
+    if (!project) return;
+    downloadBlob(new Blob([exportHexGridSvg(project, tileExportConfig())], { type: 'image/svg+xml' }), `${project.projectName}-hex-grid.svg`);
+  };
+
+  const downloadHexTileJson = () => {
+    if (!project) return;
+    downloadBlob(new Blob([exportHexTileMapJson(project, tileExportConfig())], { type: 'application/json' }), `${project.projectName}-hex-tiles.json`);
+  };
+
   const downloadPackage = async () => {
+    if (!project) return;
     downloadBlob(await exportWforge(project), `${project.projectName}.wforge`);
   };
 
@@ -277,12 +339,30 @@ function App() {
     setConfig(parsed.config);
   };
 
+  const applyTilePreset = (presetId: string) => {
+    const preset = hexTileMapPresets.find((option) => option.id === presetId);
+    setTilePresetId(presetId);
+    if (!preset) return;
+    setTileWidth(preset.width);
+    setTileHeight(preset.height);
+  };
+
+  const toggleTileFeature = (feature: HexTileFeature, enabled: boolean) => {
+    setTileFeatures((current) => {
+      if (enabled) return current.includes(feature) ? current : [...current, feature];
+      return current.filter((item) => item !== feature);
+    });
+  };
+
   return (
     <main className="app-shell" aria-busy={isGenerating}>
       <section className="toolbar" aria-label="World generation controls">
         <div className="brand">
           <strong>World Forge</strong>
           <span>Seeded map generator</span>
+          <button type="button" title="Configure content sets" className="icon-button" onClick={() => setConfigOpen(true)}>
+            <Settings size={16} />
+          </button>
         </div>
         <div className="seed-row">
           <label htmlFor="seed">Seed</label>
@@ -412,10 +492,10 @@ function App() {
             </select>
           </div>
           <div className="download-actions">
-            <button type="button" onClick={downloadPng} title="Export PNG"><Image size={16} />PNG</button>
-            <button type="button" onClick={downloadSvg} title="Export simplified SVG"><Layers size={16} />SVG</button>
-            <button type="button" onClick={downloadJson} title="Export JSON"><FileJson size={16} />JSON</button>
-            <button type="button" onClick={downloadPackage} title="Save .wforge package"><Save size={16} />.wforge</button>
+            <button type="button" onClick={downloadPng} disabled={!project} title="Export PNG"><Image size={16} />PNG</button>
+            <button type="button" onClick={downloadSvg} disabled={!project} title="Export simplified SVG"><Layers size={16} />SVG</button>
+            <button type="button" onClick={downloadJson} disabled={!project} title="Export JSON"><FileJson size={16} />JSON</button>
+            <button type="button" onClick={downloadPackage} disabled={!project} title="Save .wforge package"><Save size={16} />.wforge</button>
             <label className="file-button" title="Open .wforge package">
               <FolderOpen size={16} />Open
               <input type="file" accept=".wforge" onChange={(event) => openPackage(event.target.files?.[0])} />
@@ -430,67 +510,398 @@ function App() {
               <output>{Math.round(generationProgress * 100)}%</output>
             </div>
           )}
-          {viewMode === 'map' ? (
+          {!project ? (
+            <div className="empty-map">
+              <strong>No world generated</strong>
+              <span>Adjust settings, then generate or open a .wforge package.</span>
+            </div>
+          ) : viewMode === 'map' ? (
             <canvas ref={canvasRef} aria-label={`Generated map for ${project.projectName}`} />
           ) : (
             <GlobeViewer project={project} mapMode={mapMode} showRivers={showRivers} showPlates={showPlates} />
           )}
         </div>
-        {mapMode === 'biomes' && viewMode === 'map' && <BiomeLegend />}
+        {project && mapMode === 'biomes' && viewMode === 'map' && <BiomeLegend />}
       </section>
 
-      <aside className="summary" aria-label="World summary">
-        <h2>{project.projectName}</h2>
-        <Metric label="Ocean" value={`${project.metrics.oceanPercentage}%`} status={project.metrics.validation.oceanWithinTolerance ? 'ok' : 'warn'} />
-        <Metric label="Ocean target" value={`${project.selectedValues.oceanPercentage}% +/- ${project.selectedValues.oceanTolerancePercentagePoints}`} />
-        <Metric label="Land" value={`${project.metrics.landPercentage}%`} />
-        <Metric label="Ice" value={`${project.metrics.icePercentage}%`} />
-        <Metric label="Rivers" value={String(project.metrics.riverCount)} status={project.metrics.validation.riverPathsValid ? 'ok' : 'warn'} />
-        <Metric label="Lake cells" value={String(project.metrics.lakeCellCount)} />
-        <Metric label="Map scale" value={`${project.primaryWorld.mapModel.resolution.width} x ${project.primaryWorld.mapModel.resolution.height}`} />
-        <Metric label="PNG export" value={`${exportResolution.width} x ${exportResolution.height}`} />
-        {project.diagnostics && <Metric label="Generated in" value={`${Math.round(project.diagnostics.totalMs)} ms`} />}
-        <Metric label="Planet size" value={`${project.primaryWorld.sizeClass} Earth radii`} />
-        <Metric label="Tide influence" value={String(project.primaryWorld.tideInfluence)} />
-        <Metric label="Axial tilt" value={`${project.primaryWorld.axialTiltDeg} deg`} />
-        <Metric label="Eccentricity" value={String(project.primaryWorld.orbitalEccentricity)} />
-        <div className="system">
-          <h3>System</h3>
-          <p>{project.solarSystem.star.type}, {project.solarSystem.ageGy} Gy</p>
-          <p>{project.solarSystem.bodies.length} major bodies, {project.primaryWorld.tideInfluence > 0 ? 'moon-influenced tides' : 'no major moon tide'}</p>
+      <aside className="summary" aria-label="World details and exports">
+        <div className="summary-tabs" role="tablist" aria-label="Right panel">
+          <button type="button" role="tab" aria-selected={rightPanelTab === 'world'} className={rightPanelTab === 'world' ? 'active' : ''} onClick={() => setRightPanelTab('world')}>
+            World
+          </button>
+          <button type="button" role="tab" aria-selected={rightPanelTab === 'hex'} className={rightPanelTab === 'hex' ? 'active' : ''} onClick={() => setRightPanelTab('hex')}>
+            Hex Tile Export
+          </button>
         </div>
-        <div className="system">
-          <h3>Moons</h3>
-          {project.solarSystem.bodies.find((body) => body.isPrimaryWorld)?.moons.length ? (
-            project.solarSystem.bodies.find((body) => body.isPrimaryWorld)?.moons.map((moon) => (
-              <p key={moon.id}>{moon.name}: size {moon.sizeClass}, orbit {moon.orbitalDistanceClass}, tide {moon.tideInfluence}</p>
-            ))
-          ) : (
-            <p>No major moons</p>
-          )}
-        </div>
-        <div className="biomes">
-          <h3>Biomes</h3>
-          {Object.entries(project.metrics.biomeCounts).map(([biome, count]) => (
-            <span key={biome}>{biome.replace('_', ' ')}: {count}</span>
-          ))}
-        </div>
-        {project.diagnostics && (
-          <div className="biomes">
-            <h3>Slow Phases</h3>
-            {project.diagnostics.phases
-              .filter((phase) => !phase.name.includes('primary-world'))
-              .sort((a, b) => b.ms - a.ms)
-              .slice(0, 5)
-              .map((phase) => (
-                <span key={phase.name}>{phase.name}: {Math.round(phase.ms)} ms</span>
+        {rightPanelTab === 'world' ? (
+          <div role="tabpanel" aria-label="World">
+            {!project ? (
+              <div className="empty-panel">
+                <h2>World</h2>
+                <p>No generated world is loaded.</p>
+              </div>
+            ) : (
+            <>
+            <h2>{project.projectName}</h2>
+            <Metric label="Ocean" value={`${project.metrics.oceanPercentage}%`} status={project.metrics.validation.oceanWithinTolerance ? 'ok' : 'warn'} />
+            <Metric label="Ocean target" value={`${project.selectedValues.oceanPercentage}% +/- ${project.selectedValues.oceanTolerancePercentagePoints}`} />
+            <Metric label="Land" value={`${project.metrics.landPercentage}%`} />
+            <Metric label="Ice" value={`${project.metrics.icePercentage}%`} />
+            <Metric label="Rivers" value={String(project.metrics.riverCount)} status={project.metrics.validation.riverPathsValid ? 'ok' : 'warn'} />
+            <Metric label="Lake cells" value={String(project.metrics.lakeCellCount)} />
+            <Metric label="Map scale" value={`${project.primaryWorld.mapModel.resolution.width} x ${project.primaryWorld.mapModel.resolution.height}`} />
+            <Metric label="PNG export" value={`${exportResolution.width} x ${exportResolution.height}`} />
+            {project.diagnostics && <Metric label="Generated in" value={`${Math.round(project.diagnostics.totalMs)} ms`} />}
+            <Metric label="Planet size" value={`${project.primaryWorld.sizeClass} Earth radii`} />
+            <Metric label="Tide influence" value={String(project.primaryWorld.tideInfluence)} />
+            <Metric label="Axial tilt" value={`${project.primaryWorld.axialTiltDeg} deg`} />
+            <Metric label="Eccentricity" value={String(project.primaryWorld.orbitalEccentricity)} />
+            <div className="system">
+              <h3>System</h3>
+              <p>{project.solarSystem.star.type}, {project.solarSystem.ageGy} Gy</p>
+              <p>{project.solarSystem.bodies.length} major bodies, {project.primaryWorld.tideInfluence > 0 ? 'moon-influenced tides' : 'no major moon tide'}</p>
+            </div>
+            <div className="system">
+              <h3>Moons</h3>
+              {project.solarSystem.bodies.find((body) => body.isPrimaryWorld)?.moons.length ? (
+                project.solarSystem.bodies.find((body) => body.isPrimaryWorld)?.moons.map((moon) => (
+                  <p key={moon.id}>{moon.name}: size {moon.sizeClass}, orbit {moon.orbitalDistanceClass}, tide {moon.tideInfluence}</p>
+                ))
+              ) : (
+                <p>No major moons</p>
+              )}
+            </div>
+            <div className="biomes">
+              <h3>Biomes</h3>
+              {Object.entries(project.metrics.biomeCounts).map(([biome, count]) => (
+                <span key={biome}>{biome.replace('_', ' ')}: {count}</span>
               ))}
+            </div>
+            {project.diagnostics && (
+              <div className="biomes">
+                <h3>Slow Phases</h3>
+                {project.diagnostics.phases
+                  .filter((phase) => !phase.name.includes('primary-world'))
+                  .sort((a, b) => b.ms - a.ms)
+                  .slice(0, 5)
+                  .map((phase) => (
+                    <span key={phase.name}>{phase.name}: {Math.round(phase.ms)} ms</span>
+                  ))}
+              </div>
+            )}
+            </>
+            )}
+          </div>
+        ) : (
+          <div className="tile-export-panel" role="tabpanel" aria-label="Hex tile export">
+            <div className="tile-export-title">
+              <Hexagon size={16} />
+              <strong>Hex tile export</strong>
+            </div>
+            <label htmlFor="tile-size-preset">
+              Tile size
+              <select id="tile-size-preset" value={tilePresetId} onChange={(event) => applyTilePreset(event.target.value)}>
+                {hexTileMapPresets.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.label}
+                  </option>
+                ))}
+                <option value="custom">Custom</option>
+              </select>
+            </label>
+            <div className="tile-dimensions">
+              <label htmlFor="tile-width">
+                Width
+                <input
+                  id="tile-width"
+                  min="8"
+                  max="240"
+                  type="number"
+                  value={tileWidth}
+                  onChange={(event) => {
+                    setTilePresetId('custom');
+                    setTileWidth(Math.max(1, Number(event.target.value)));
+                  }}
+                />
+              </label>
+              <label htmlFor="tile-height">
+                Height
+                <input
+                  id="tile-height"
+                  min="6"
+                  max="160"
+                  type="number"
+                  value={tileHeight}
+                  onChange={(event) => {
+                    setTilePresetId('custom');
+                    setTileHeight(Math.max(1, Number(event.target.value)));
+                  }}
+                />
+              </label>
+            </div>
+            <div className="tile-feature-row" aria-label="Tile feature classes">
+              {civ7StyleHexTileProfile.features.map((feature) => (
+                <label key={feature}>
+                  <input type="checkbox" checked={tileFeatures.includes(feature)} onChange={(event) => toggleTileFeature(feature, event.target.checked)} />
+                  {tileFeatureLabels[feature]}
+                </label>
+              ))}
+            </div>
+            <div className="tile-export-actions">
+              <button type="button" onClick={downloadHexGridSvg} disabled={!project} title="Export hex grid SVG"><Layers size={16} />Hex SVG</button>
+              <button type="button" onClick={downloadHexTileJson} disabled={!project} title="Export terrain tile JSON"><FileJson size={16} />Tile JSON</button>
+            </div>
+            <div className="system">
+              <h3>Profile</h3>
+              <p>{civ7StyleHexTileProfile.label}</p>
+              <p>{project ? `${tileWidth} x ${tileHeight} pointy-top odd-row hexes sampled from generated topology facts.` : 'Generate or open a world before exporting tiles.'}</p>
+            </div>
           </div>
         )}
       </aside>
+      {configOpen && (
+        <ContentConfigModal
+          library={contentLibrary}
+          activeTab={configTab}
+          onTab={setConfigTab}
+          onClose={() => setConfigOpen(false)}
+          onChange={setContentLibrary}
+        />
+      )}
       {isGenerating && <div className="generating-overlay">Generating world</div>}
     </main>
   );
+}
+
+function ContentConfigModal({
+  library,
+  activeTab,
+  onTab,
+  onClose,
+  onChange
+}: {
+  library: ContentLibraryConfig;
+  activeTab: ConfigTab;
+  onTab: (tab: ConfigTab) => void;
+  onClose: () => void;
+  onChange: (library: ContentLibraryConfig) => void;
+}) {
+  const category = library[activeTab];
+  const [selectedSetId, setSelectedSetId] = useState(category.defaultSetId);
+  const selectedSet = category.sets.find((set) => set.id === selectedSetId) ?? category.sets[0];
+  const visibleMembers = category.members.filter((member) => selectedSet?.memberIds.includes(member.id));
+  const [selectedMemberId, setSelectedMemberId] = useState(visibleMembers[0]?.id ?? category.members[0]?.id ?? '');
+  const selectedMember = category.members.find((member) => member.id === selectedMemberId) ?? visibleMembers[0] ?? category.members[0];
+
+  useEffect(() => {
+    setSelectedSetId(library[activeTab].defaultSetId);
+  }, [activeTab, library]);
+
+  useEffect(() => {
+    const nextCategory = library[activeTab];
+    const nextSet = nextCategory.sets.find((set) => set.id === selectedSetId) ?? nextCategory.sets[0];
+    const nextMember = nextCategory.members.find((member) => nextSet?.memberIds.includes(member.id));
+    if (nextMember) setSelectedMemberId(nextMember.id);
+  }, [activeTab, library, selectedSetId]);
+
+  const updateCategory = (updater: (category: ContentCategoryConfig) => ContentCategoryConfig) => {
+    onChange({ ...library, [activeTab]: updater(library[activeTab]) });
+  };
+
+  const markDefaultSet = (setId: string) => {
+    updateCategory((current) => ({
+      ...current,
+      defaultSetId: setId,
+      sets: current.sets.map((set) => ({ ...set, isDefault: set.id === setId }))
+    }));
+  };
+
+  const addSet = () => {
+    const baseId = `${activeTab}-set-${category.sets.length + 1}`;
+    const setId = uniqueId(baseId, category.sets.map((set) => set.id));
+    updateCategory((current) => ({
+      ...current,
+      sets: [
+        ...current.sets,
+        {
+          id: setId,
+          label: `New ${current.label} Set`,
+          description: 'User-defined set.',
+          memberIds: [],
+          isDefault: false
+        }
+      ]
+    }));
+    setSelectedSetId(setId);
+  };
+
+  const copyMemberToSet = (memberId: string, setId: string) => {
+    updateCategory((current) => ({
+      ...current,
+      sets: current.sets.map((set) => (set.id === setId && !set.memberIds.includes(memberId) ? { ...set, memberIds: [...set.memberIds, memberId] } : set)),
+      members: current.members.map((member) => (member.id === memberId && !member.setIds.includes(setId) ? { ...member, setIds: [...member.setIds, setId] } : member))
+    }));
+  };
+
+  const updateMemberAsset = (memberId: string, assetId: string, value: string) => {
+    updateCategory((current) => ({
+      ...current,
+      members: current.members.map((member) =>
+        member.id === memberId
+          ? {
+              ...member,
+              assets: member.assets.map((asset) => (asset.id === assetId ? { ...asset, value } : asset))
+            }
+          : member
+      )
+    }));
+  };
+
+  const attachUploadedAsset = (memberId: string, file: File, kind: 'texture' | 'icon') => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const value = typeof reader.result === 'string' ? reader.result : '';
+      updateCategory((current) => ({
+        ...current,
+        members: current.members.map((member) =>
+          member.id === memberId
+            ? {
+                ...member,
+                assets: [
+                  ...member.assets,
+                  {
+                    id: `${member.id}-${kind}-${Date.now()}`,
+                    label: file.name,
+                    kind,
+                    value
+                  }
+                ]
+              }
+            : member
+        )
+      }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="config-modal" role="dialog" aria-modal="true" aria-label="Content configuration">
+        <header className="config-modal-header">
+          <div>
+            <h2>Content Configuration</h2>
+            <p>Configure data sets now; generation cutover will use these defaults in a later pass.</p>
+          </div>
+          <button type="button" title="Close" onClick={onClose}>
+            <X size={16} />
+          </button>
+        </header>
+        <div className="config-tabs" role="tablist" aria-label="Content categories">
+          {(Object.keys(library) as ConfigTab[]).map((tab) => (
+            <button key={tab} type="button" role="tab" aria-selected={activeTab === tab} className={activeTab === tab ? 'active' : ''} onClick={() => onTab(tab)}>
+              {library[tab].label}
+            </button>
+          ))}
+        </div>
+        <div className="config-body">
+          <aside className="config-sets" aria-label={`${category.label} sets`}>
+            <div className="config-section-title">
+              <strong>Sets</strong>
+              <button type="button" onClick={addSet}>Add</button>
+            </div>
+            {category.sets.map((set) => (
+              <button key={set.id} type="button" className={set.id === selectedSetId ? 'set-button active' : 'set-button'} onClick={() => setSelectedSetId(set.id)}>
+                <span>{set.label}</span>
+                {set.isDefault && <em>Default</em>}
+              </button>
+            ))}
+            {selectedSet && (
+              <button type="button" onClick={() => markDefaultSet(selectedSet.id)} disabled={selectedSet.isDefault}>
+                Mark Default
+              </button>
+            )}
+          </aside>
+          <section className="config-members" aria-label={`${category.label} members`}>
+            <div className="config-section-title">
+              <strong>{selectedSet?.label ?? category.label}</strong>
+              <span>{visibleMembers.length} members</span>
+            </div>
+            <div className="member-grid">
+              {visibleMembers.map((member) => (
+                <button key={member.id} type="button" className={member.id === selectedMember?.id ? 'member-button active' : 'member-button'} onClick={() => setSelectedMemberId(member.id)}>
+                  <span className="member-swatch" style={{ background: previewColor(member) }} />
+                  {member.label}
+                </button>
+              ))}
+            </div>
+            <div className="copy-row">
+              <label htmlFor="copy-member-target">Copy selected to</label>
+              <select id="copy-member-target" onChange={(event) => selectedMember && copyMemberToSet(selectedMember.id, event.target.value)} defaultValue="">
+                <option value="" disabled>Select set</option>
+                {category.sets.filter((set) => selectedMember && !set.memberIds.includes(selectedMember.id)).map((set) => (
+                  <option key={set.id} value={set.id}>{set.label}</option>
+                ))}
+              </select>
+            </div>
+          </section>
+          <section className="member-detail" aria-label="Selected member detail">
+            {selectedMember ? (
+              <>
+                <h3>{selectedMember.label}</h3>
+                <p>{selectedMember.description}</p>
+                <Metric label="Source" value={selectedMember.source} />
+                <Metric label="Sets" value={selectedMember.setIds.length.toString()} />
+                <div className="rule-list">
+                  <h4>Rules</h4>
+                  {selectedMember.rules.length ? selectedMember.rules.map((rule, index) => <code key={`${rule.field}-${index}`}>{formatRule(rule)}</code>) : <span>No mapping rules yet</span>}
+                </div>
+                <div className="asset-list">
+                  <h4>Assets</h4>
+                  {selectedMember.assets.map((asset) => (
+                    <label key={asset.id}>
+                      {asset.label}
+                      <input value={asset.value} onChange={(event) => updateMemberAsset(selectedMember.id, asset.id, event.target.value)} />
+                    </label>
+                  ))}
+                  <label className="asset-upload">
+                    Attach texture
+                    <input type="file" accept="image/*" onChange={(event) => event.target.files?.[0] && attachUploadedAsset(selectedMember.id, event.target.files[0], 'texture')} />
+                  </label>
+                  <label className="asset-upload">
+                    Attach icon
+                    <input type="file" accept="image/*" onChange={(event) => event.target.files?.[0] && attachUploadedAsset(selectedMember.id, event.target.files[0], 'icon')} />
+                  </label>
+                </div>
+              </>
+            ) : (
+              <p>No member selected.</p>
+            )}
+          </section>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function uniqueId(baseId: string, existing: string[]): string {
+  if (!existing.includes(baseId)) return baseId;
+  let index = 2;
+  while (existing.includes(`${baseId}-${index}`)) index += 1;
+  return `${baseId}-${index}`;
+}
+
+function previewColor(member: ContentMember): string {
+  return member.assets.find((asset) => asset.kind === 'preview-color')?.value || '#9f998d';
+}
+
+function formatRule(rule: ContentRule): string {
+  const parts = [rule.field];
+  if (rule.equals !== undefined) parts.push(`= ${String(rule.equals)}`);
+  if (rule.min !== undefined) parts.push(`>= ${rule.min}`);
+  if (rule.max !== undefined) parts.push(`<= ${rule.max}`);
+  if (rule.includes?.length) parts.push(`in ${rule.includes.join(', ')}`);
+  if (rule.note) parts.push(rule.note);
+  return parts.join(' ');
 }
 
 function GlobeViewer({ project, mapMode, showRivers, showPlates }: { project: WorldProject; mapMode: MapMode; showRivers: boolean; showPlates: boolean }) {

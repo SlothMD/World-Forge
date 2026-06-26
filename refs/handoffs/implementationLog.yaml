@@ -1,7 +1,36 @@
 version: 1
 schema: refs/schemas/schemaRegistry.yaml
-updated: 2026-06-25
+updated: 2026-06-26
 entries:
+  - date: 2026-06-26
+    summary: Added empty startup behavior and a content configuration modal for biome, tile, feature, and resource sets with default pack scaffolding.
+    files:
+      - packages/shared/src/index.ts
+      - apps/desktop/src/main.tsx
+      - apps/desktop/src/styles.css
+      - refs/handoffs/currentHandoff.md
+      - refs/planning/todos.yaml
+    validation:
+      - npm run typecheck
+      - npm test
+      - npm run build
+      - Playwright empty-startup, config-modal, and generate-after-empty smoke
+  - date: 2026-06-26
+    summary: Added the first post-generation hex tile export slice with Civ 7-style terrain/profile defaults, editable tile dimensions, aligned hex-grid SVG export, structured tile JSON export, and a right-panel Hex Tile Export tab.
+    files:
+      - packages/shared/src/index.ts
+      - packages/exporters/src/index.ts
+      - packages/generator-core/src/generator.test.ts
+      - apps/desktop/src/main.tsx
+      - apps/desktop/src/styles.css
+      - refs/handoffs/currentHandoff.md
+      - refs/planning/todos.yaml
+      - refs/product/featureCatalog.yaml
+    validation:
+      - npm run typecheck
+      - npm test
+      - npm run build
+      - Playwright Hex Tile Export tab and SVG alignment smoke
   - date: 2026-06-25
     summary: Stamped the High-resolution default seed baseline, optimized topology generation hotspots, and moved Generate runs into a UI-responsive Worker with progress feedback.
     files:

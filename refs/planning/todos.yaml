@@ -1,6 +1,6 @@
 version: 1
 schema: refs/schemas/schemaRegistry.yaml
-updated: 2026-06-25
+updated: 2026-06-26
 todos:
   - id: scaffold-monorepo
     status: done
@@ -145,8 +145,9 @@ todos:
       - Clouds and atmosphere are visual layers over canonical world data.
       - Sun/moon positions should use generated solar-system fields where available and remain deterministic by seed/time.
       - Day/night cycle should affect lighting only unless/until climate simulation consumes time-of-day.
+      - Add an atmospheric overlay to globe view as an early visual slice.
   - id: add-post-generate-tile-map
-    status: open
+    status: in_progress
     area: export
     priority: high
     summary: Add a post-generation action that derives a configurable tiled map from the generated world.
@@ -157,3 +158,33 @@ todos:
       - Tile generation should resample authoritative topology/world facts rather than re-generating a separate world.
       - Output should preserve seed, source world id, tile profile, tile dimensions, source projection/topology metadata, and terrain/feature legend.
       - Keep this as a generic tile export/profile system; do not hardwire the core generator to Civ-specific gameplay rules.
+      - First slice implemented shared hex tile-map types, a Civ 7-style profile, editable Civ 7-style size presets, SVG hex-grid export, structured tile JSON export, and UI controls for dimensions/features.
+      - Exact Civ 7 map-size dimensions and map-script APIs still need verification against shipped/modding data before treating presets as canonical.
+  - id: add-content-configuration
+    status: in_progress
+    area: configuration
+    priority: high
+    summary: Add user-editable content sets for biomes, tiles, features, and resources before cutting generation/export to data-driven rules.
+    notes:
+      - First slice added shared content-pack schema and default sets for current biomes, Civ 7-style tiles/features, and initial Civ 7 resource names.
+      - Left-panel gear opens a modal for browsing categories, selecting sets, marking defaults, copying members between sets, inspecting mapping rules, editing preview color/asset values, and uploading texture/icon assets.
+      - Current generator/exporter still use hardcoded rules; next cutover should consume default content sets category by category.
+      - Additional future categories worth considering: improvements, natural wonders, yields, starts/spawns, labels/naming, and regional style palettes.
+      - Feature defaults need rough, volcano, and tropical added to the feature vocabulary/config.
+      - Build non-terrestrial terrain sets for moons and worlds outside the habitable zone.
+  - id: background-secondary-moons
+    status: open
+    area: performance
+    priority: medium
+    summary: Hand off secondary moon generation to a background process.
+    notes:
+      - Keep primary world generation responsive while optional moon detail is computed.
+      - Preserve deterministic seed linkage between primary world, system body, and generated moon detail.
+  - id: background-detail-map
+    status: open
+    area: performance
+    priority: low
+    summary: Hand off detailed map finer-detail generation to a background process.
+    notes:
+      - Longer-term follow-up after the main world pipeline and export configs stabilize.
+      - Candidate workload includes high-resolution detail maps, local texture masks, and export-grade terrain decoration.
