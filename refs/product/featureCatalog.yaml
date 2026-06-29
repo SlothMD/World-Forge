@@ -1,6 +1,6 @@
 version: 1
 schema: refs/schemas/schemaRegistry.yaml
-updated: 2026-06-26
+updated: 2026-06-29
 features:
   - id: deterministic-generation
     status: active
@@ -26,3 +26,6 @@ features:
   - id: content-configuration
     status: active
     summary: Configure content sets for biomes, tiles, features, and resources before the generator/exporters fully consume data-driven definitions.
+  - id: local-profile-cloud-sync
+    status: active
+    summary: Maintain a local user profile, keep data sync enabled by default under Config, persist settings/assets/saved maps locally, and automatically sync them through the configured studio identity service after sign-in.

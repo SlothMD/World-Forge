@@ -57,12 +57,16 @@ Implemented pieces:
 - Added first post-generation hex tile export slice. The exporter can emit an aligned pointy-top odd-row hex-grid SVG and a structured hex tile JSON dataset sampled from topology facts, with editable dimensions, Civ 7-style size presets, and a configurable Civ 7-style terrain/feature profile. Hex tile export controls now live in the right panel under a `Hex Tile Export` tab alongside the `World` tab.
 - App startup no longer auto-generates the default world. The seed/config controls are prefilled, the map starts in an empty ready state, and `.wforge` imports still populate the project immediately.
 - Added a left-panel configuration gear that opens a content configuration modal. Initial configurable categories are Biomes, Tiles, Features, and Resources, each with sets/packs, default set marking, member browsing, copy-to-set behavior, mapping-rule display, preview colors, and image/texture/icon attachment slots. Defaults capture the current biome rules, Civ 7-style tile/feature vocabularies, and an initial Civ 7 resource-name pack.
+- Added lightweight user awareness and persistence. The app now creates a local profile, persists generation config/content library assets/hex export settings/saved maps locally, and defaults `Keep data synced` on under the Config > Sync tab.
+- Cloud sync now targets the existing EcoMoguls-style service contract: `POST /api/identity/register`, `PATCH /api/identity/me`, then authenticated `GET`/`PUT /api/world-forge/user-sync/{profileId}` using `X-Player-Id` / `X-Player-Token`. This avoids coupling the app to a final premium/provider SDK.
+- Saved map persistence is metadata-only for now. Full High-resolution project payloads exceeded browser localStorage quota and caused a blank-page crash; full saved-map sync needs IndexedDB and/or backend blob storage.
 
 Important architecture change:
 
 - Accepted direction is global-topology-first generation: generate authoritative world facts on topology cells with spherical coordinates, adjacency, distances, and area weights, then project to equirectangular or other map views.
 - The current full generation pipeline is now mostly topology-native for plates, elevation, water, climate/wetness, hydrology, lakes, ice, biomes, and rivers. Projected raster layers should be treated as preview/export artifacts.
 - Do not spend effort on seam/polar patching as a primary strategy; fix authoritative topology data first, then improve projection sampling where artifacts are view-only.
+- User identity/sync is local-first from the implementation side, but user-light from the product side: hosted builds should preconfigure `VITE_WORLD_FORGE_SERVICE_URL`, keep sync on by default, and automatically sync after sign-in.
 
 ## Validation
 
@@ -84,6 +88,8 @@ Recent local validation notes:
 - `npm run validate` is blocked locally until PyYAML is installed for `refs/tools/validate_refs.py`.
 - `npm run typecheck`, `npm test`, and `npm run build` pass after the hex tile export slice and tab move. Test suite currently has 20 passing tests. Playwright smoke verified the Hex Tile Export tab and first-row SVG hex alignment.
 - Playwright smoke verified empty startup without generation, opening the content configuration modal, and generating from the empty startup state.
+- `npm run typecheck`, `npm test`, and `npm run build` pass after the local profile/cloud-sync slice. Test suite currently has 23 passing tests across package and desktop test files.
+- Playwright generate-after-sync-persistence smoke verified map generation no longer blanks the page after localStorage quota handling was hardened.
 
 ## Known Gaps
 
@@ -102,6 +108,7 @@ Other flagged landmines:
 - Simplified moon/tide model: acceptable for now only if orbital fields remain replaceable by richer modeling.
 - Civ 7 exact map-size dimensions and mod-script hooks still need verification against shipped/modding data. Current built-in tile presets are editable Civ 7-style starter presets, not a claim of exact Firaxis internal dimensions.
 - Content configuration is currently scaffolding/state in the app and shared defaults. Generation/export still use the existing hardcoded logic until the planned data-driven cutover.
+- Cloud sync currently requires a compatible external service; the app implements the client contract and local persistence, but does not yet bundle/deploy the hosted backend. Minimum backend delta is documented in `refs/architecture/userSync.md`.
 
 External reference note:
 
@@ -116,22 +123,33 @@ Current benchmark sample after first optimization pass:
 
 Current measured hotspots at 2048x1024 are crust-field generation, hydrology priority-flood/flow ordering, terrain primordial/enrichment/elevation passes, plate assignment, and climate.
 
+Current interesting QA seeds:
+
+- `5985700`
+- `7772599` - heavy southeastern feathering and unclear river termination/readability.
+- `1404958`
+- `6096962`
+
 ## Next Useful Actions
 
 1. Visually QA high-resolution 2048x1024 output after adjustable Region-count/multi-lobed continent updates.
 2. Visually QA the primordial/plate-history pass at 2048x1024 and decide whether to keep/tune it before optimizing.
 3. Continue optimizing high-resolution topology generation, now focused on crust-field and hydrology phases, while preserving the new primordial/plate-history visual quality.
-4. Expand Globe view with atmosphere, clouds, sun/moon scene objects, day/night lighting, layer controls, and direct topology/cubed-sphere sampling where useful.
-5. Code-split the Three.js globe viewer so 2D-only startup stays lightweight.
-6. Add richer wind/current circulation as topology vector fields rather than raster-only visualization.
-7. Refine topology-native terrain aging/weathering/glaciation with climate feedback loops.
-8. Improve projection sampling from nearest-cell to interpolated topology sampling where visible artifacts appear.
-9. Expand deterministic tests for topology data separately from projected-render/export tests.
-10. Verify Civ 7 mod data for exact map-size dimensions and map-script APIs, then align the generic hex tile profile with the future in-game generation mod.
-11. Cut generation/export logic over to content configuration sets, starting with biome thresholds and hex tile/profile mapping.
-12. Add missing feature config members: rough, volcano, and tropical.
-13. Hand off secondary moon generation to a background process.
-14. Add globe atmospheric overlay.
-15. Build non-terrestrial terrain sets for moons and worlds outside the habitable zone.
-16. Longer-term: move detailed map finer-detail generation to a background process.
-17. Decide final product name, desktop app identifier, package extension, and real app icon assets.
+4. Tone up coastline readability with a subtle shore halo/edge-light and shallow-shelf treatment, keeping it theme-driven and non-authoritative.
+5. Add 2D map zoom/pan controls with reset-to-fit; export resolution should remain independent of viewport zoom.
+6. Expand Globe view with atmosphere, clouds, sun/moon scene objects, day/night lighting, layer controls, and direct topology/cubed-sphere sampling where useful.
+7. Code-split the Three.js globe viewer so 2D-only startup stays lightweight.
+8. Add richer wind/current circulation as topology vector fields rather than raster-only visualization.
+9. Refine topology-native terrain aging/weathering/glaciation with climate feedback loops.
+10. Improve projection sampling from nearest-cell to interpolated topology sampling where visible artifacts appear.
+11. Expand deterministic tests for topology data separately from projected-render/export tests.
+12. Verify Civ 7 mod data for exact map-size dimensions and map-script APIs, then align the generic hex tile profile with the future in-game generation mod.
+13. Cut generation/export logic over to content configuration sets, starting with biome thresholds and hex tile/profile mapping.
+14. Add or deploy the thin cloud sync service matching `refs/architecture/userSync.md`, then test automatic cross-machine sync with real user content assets and saved maps.
+15. Add missing feature config members: rough, volcano, and tropical.
+16. Hand off secondary moon generation to a background process.
+17. Add globe atmospheric overlay.
+18. Build non-terrestrial terrain sets for moons and worlds outside the habitable zone.
+19. Add a 3D terrain map view after texture/detail handling is robust enough for close inspection.
+20. Longer-term: move detailed map finer-detail generation to a background process.
+21. Decide final product name, desktop app identifier, package extension, and real app icon assets.

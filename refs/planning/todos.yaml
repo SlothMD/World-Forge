@@ -1,6 +1,6 @@
 version: 1
 schema: refs/schemas/schemaRegistry.yaml
-updated: 2026-06-26
+updated: 2026-06-29
 todos:
   - id: scaffold-monorepo
     status: done
@@ -94,6 +94,8 @@ todos:
     notes:
       - Initial nearest-cell projection exists for elevation and plates.
       - Interpolation and subsystem-specific projected artifacts remain follow-up work.
+      - Prioritize export/persistence quality over speed; preview may use a faster path if a measured quality fallback exists for saved/exported outputs.
+      - Use user-selected visually good seeds as regression samples once identified.
   - id: split-topology-vs-projection-tests
     status: open
     area: testing
@@ -146,6 +148,50 @@ todos:
       - Sun/moon positions should use generated solar-system fields where available and remain deterministic by seed/time.
       - Day/night cycle should affect lighting only unless/until climate simulation consumes time-of-day.
       - Add an atmospheric overlay to globe view as an early visual slice.
+  - id: improve-coastline-readability
+    status: open
+    area: rendering
+    priority: medium
+    summary: Tone up coastline presentation so shorelines read clearly without making coastline styling authoritative world data.
+    notes:
+      - Best-practice direction: add a subtle shore halo/edge-light and shallow-water shelf band derived from existing water/coast facts rather than changing biome colors.
+      - Keep the effect optional or theme-driven so diagnostic heightmap/elevation filters remain truthful.
+      - Consider separate treatments for 2D map, globe albedo texture, and future tile export previews.
+      - Avoid thick outlines that visually imply political borders or plate boundaries.
+      - First pass can use the suggested shelf band plus subtle landward light edge, but visual styling should become configurable with several compact options.
+      - Keep UI compact: prefer one small map/view settings menu over persistent button sprawl so focus remains on the map.
+  - id: add-map-zoom-controls
+    status: open
+    area: ui
+    priority: high
+    summary: Add zoom in/out and pan controls for the 2D map preview.
+    notes:
+      - Include buttons and wheel/trackpad support, with reset-to-fit.
+      - Preserve export resolution semantics; zoom is a viewport interaction only.
+      - Keep overlay hit targets and legends readable at zoomed scales.
+      - Mouse wheel zoom should be enabled by default.
+      - Left-click drag pans the 2D map.
+      - Middle-click drag is reserved for tilt-style navigation where the current view supports it.
+      - Keyboard controls should be mappable; first default set is W/A/S/E for pan, Q/E or equivalent for rotate/tilt where relevant, and +/- for zoom.
+      - Zoom state is session-only for the first pass.
+  - id: collapsible-side-panels
+    status: open
+    area: ui
+    priority: medium
+    summary: Make the generation controls and World info panel collapsible so the map remains the primary focus.
+    notes:
+      - Preserve quick access to Generate, view mode, and map settings while collapsed.
+      - Avoid hiding active warnings or generation progress.
+      - This pairs naturally with compact view-settings menus for coastline/overlay options.
+  - id: add-3d-map-view
+    status: deferred
+    area: rendering
+    priority: medium
+    summary: Add a 3D terrain map view after texture/detail handling is robust enough for close inspection.
+    notes:
+      - Distinct from the globe view: this should be a navigable terrain/map view using generated texture/detail layers.
+      - Defer until coastline, terrain texture, normal/detail, and scale handling are mature.
+      - Use non-authoritative presentation geometry over topology/world facts, not renderer-derived simulation data.
   - id: add-post-generate-tile-map
     status: in_progress
     area: export
@@ -172,6 +218,21 @@ todos:
       - Additional future categories worth considering: improvements, natural wonders, yields, starts/spawns, labels/naming, and regional style palettes.
       - Feature defaults need rough, volcano, and tropical added to the feature vocabulary/config.
       - Build non-terrestrial terrain sets for moons and worlds outside the habitable zone.
+  - id: add-user-cloud-sync
+    status: in_progress
+    area: persistence
+    priority: high
+    summary: Add lightweight user awareness and cross-machine persistence for settings and user-attached content assets.
+    notes:
+      - First slice follows the EcoMoguls local-first pattern: a local profile is created immediately, `Keep data synced` defaults on, and remote calls only happen when a service URL is configured.
+      - The desktop app now persists identity, generation config, content library assets, hex export settings, and a bounded saved-map library in local browser/Tauri storage.
+      - Cloud sync uses the existing studio identity service contract: `POST /api/identity/register`, `PATCH /api/identity/me`, and authenticated `GET`/`PUT /api/world-forge/user-sync/{profileId}` with `X-Player-Id` / `X-Player-Token`.
+      - Generated/opened worlds are remembered in saved maps and included in the sync envelope; `.wforge` packages remain the explicit portable/export artifact.
+      - Minimum backend delta is one World Forge JSONB sync table and two authenticated routes; see refs/architecture/userSync.md.
+      - Premium/account entitlements should layer on top of the profile/service boundary later, not block this local-first persistence path.
+      - Conflict strategy is last-write-wins for the first backend slice.
+      - `D:\Apps\Crawl-Space` was identified as the expected source for relevant deployment tooling/credentials, but the local working tree currently only contains `.git`; private values should remain in TWS References or deployment secrets, not this public repo.
+      - Do not store full generated map payloads in localStorage; High-resolution worlds exceed browser quota. Use metadata locally until IndexedDB and/or backend blob storage is added for full saved-map sync.
   - id: background-secondary-moons
     status: open
     area: performance

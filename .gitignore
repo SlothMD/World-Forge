@@ -19,6 +19,7 @@ out/
 src-tauri/target/
 src-tauri/gen/schemas/
 .vite-dev.log
+.vite-dev-*.log
 mvp-smoke.png
 *.tsbuildinfo
 packages/**/src/*.d.ts

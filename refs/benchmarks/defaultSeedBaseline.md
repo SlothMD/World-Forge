@@ -49,3 +49,14 @@ Interpretation:
 - The largest safe win came from replacing full-array percentile sorts with fixed-bin histograms and avoiding expensive continent-lobe math outside each region influence.
 - Hydrology is now the largest remaining process hotspot after crust-field generation. Further wins should be profiled carefully because priority-flood drainage and global flow ordering are part of the real hydrology model, not presentation cleanup.
 - The desktop app now runs Generate in a Web Worker and shows a progress indicator for subsequent generations, so the UI remains responsive while the generator runs.
+
+## QA Reference Seeds
+
+Seeds identified for visual QA after the local profile/sync and saved-map persistence pass:
+
+- `5985700`
+- `7772599` - useful for checking heavy southeastern feathering and unclear river termination/readability.
+- `1404958`
+- `6096962`
+
+Use these alongside default seed `1001001` when testing projection sampling, coastline readability, river termination display, and future map zoom/pan behavior.

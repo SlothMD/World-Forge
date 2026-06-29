@@ -1,5 +1,9 @@
 # Example environment variables.
 # Do not commit real secrets.
+# This repo is public; keep production service URLs, OAuth values, database URLs,
+# API tokens, and personal account identifiers in private deployment storage
+# such as the Google Drive TWS References folder.
 
 PROJECT_ENV=development
 LOG_LEVEL=debug
+VITE_WORLD_FORGE_SERVICE_URL=https://world-forge-api.example.test

@@ -1,7 +1,27 @@
 version: 1
 schema: refs/schemas/schemaRegistry.yaml
-updated: 2026-06-26
+updated: 2026-06-29
 entries:
+  - date: 2026-06-29
+    summary: Added lightweight local user identity, local workspace/saved-map persistence, a Config Sync tab with default-on sync, and automatic cloud sync against the existing studio identity service contract.
+    files:
+      - .gitignore
+      - apps/desktop/src/sync.ts
+      - apps/desktop/src/sync.test.ts
+      - apps/desktop/src/main.tsx
+      - apps/desktop/src/styles.css
+      - vite.config.ts
+      - refs/architecture/userSync.md
+      - refs/benchmarks/defaultSeedBaseline.md
+      - refs/implementation/envVars.example
+      - refs/handoffs/currentHandoff.md
+      - refs/planning/todos.yaml
+      - refs/product/featureCatalog.yaml
+    validation:
+      - npm run typecheck
+      - npm test
+      - npm run build
+      - Playwright generate-after-sync-persistence smoke
   - date: 2026-06-26
     summary: Added empty startup behavior and a content configuration modal for biome, tile, feature, and resource sets with default pack scaffolding.
     files:

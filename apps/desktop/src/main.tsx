@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { FileJson, FolderOpen, Hexagon, Image, Layers, RefreshCw, Save, Settings, Shuffle, X } from 'lucide-react';
+import { Cloud, Download, FileJson, FolderOpen, Hexagon, Image, Layers, RefreshCw, Save, Settings, Shuffle, Upload, User, X } from 'lucide-react';
 import * as THREE from 'three';
 import { createDefaultConfig, generateProject } from '@world-forge/generator-core';
 import { exportHexGridSvg, exportHexTileMapJson, exportSvg, exportWforge, importWforge, projectToJson } from '@world-forge/exporters';
@@ -23,12 +23,29 @@ import {
   hexTileMapPresets,
   parameterControlBounds
 } from '@world-forge/shared';
+import {
+  CloudSyncSettings,
+  LocalUserIdentity,
+  SavedMapRecord,
+  buildSyncEnvelope,
+  buildWorkspaceSettings,
+  isLoggedIn,
+  loadCloudSyncSettings,
+  loadIdentity,
+  loadWorkspaceSettings,
+  pullSyncEnvelope,
+  pushSyncEnvelope,
+  saveCloudSyncSettings,
+  saveIdentity,
+  saveWorkspaceSettings,
+  syncIdentity
+} from './sync';
 import './styles.css';
 
 type RangeKey = keyof ParameterRanges;
 type ViewMode = 'map' | 'globe';
 type RightPanelTab = 'world' | 'hex';
-type ConfigTab = ContentCategory;
+type ConfigTab = ContentCategory | 'sync';
 
 const rangeLabels: Record<RangeKey, string> = {
   systemAgeGy: 'System age',
@@ -134,17 +151,22 @@ const worldPresets: Array<{ label: string; ranges: Partial<ParameterRanges>; tol
 
 function App() {
   const defaultHighConfig = () => createDefaultConfig(defaultSeed, { width: 2048, height: 1024 });
-  const [config, setConfig] = useState<GenerationConfig>(() => defaultHighConfig());
+  const storedWorkspace = useMemo(() => loadWorkspaceSettings(), []);
+  const [config, setConfig] = useState<GenerationConfig>(() => storedWorkspace.config ?? defaultHighConfig());
   const [project, setProject] = useState<WorldProject | null>(null);
-  const [contentLibrary, setContentLibrary] = useState<ContentLibraryConfig>(() => structuredClone(defaultContentLibrary));
+  const [contentLibrary, setContentLibrary] = useState<ContentLibraryConfig>(() => storedWorkspace.contentLibrary ?? structuredClone(defaultContentLibrary));
+  const [savedMaps, setSavedMaps] = useState<SavedMapRecord[]>(() => storedWorkspace.savedMaps ?? []);
+  const [identity, setIdentity] = useState<LocalUserIdentity>(() => loadIdentity());
+  const [cloudSync, setCloudSync] = useState<CloudSyncSettings>(() => loadCloudSyncSettings());
+  const [syncStatus, setSyncStatus] = useState('Local profile ready');
   const [configOpen, setConfigOpen] = useState(false);
   const [configTab, setConfigTab] = useState<ConfigTab>('biomes');
   const [previewResolution, setPreviewResolution] = useState(previewResolutionOptions[1]);
   const [exportResolution, setExportResolution] = useState(resolutionOptions[1]);
-  const [tilePresetId, setTilePresetId] = useState(defaultHexPreset.id);
-  const [tileWidth, setTileWidth] = useState(defaultHexPreset.width);
-  const [tileHeight, setTileHeight] = useState(defaultHexPreset.height);
-  const [tileFeatures, setTileFeatures] = useState<HexTileFeature[]>(civ7StyleHexTileProfile.features);
+  const [tilePresetId, setTilePresetId] = useState(storedWorkspace.tileExport?.presetId ?? defaultHexPreset.id);
+  const [tileWidth, setTileWidth] = useState(storedWorkspace.tileExport?.width ?? defaultHexPreset.width);
+  const [tileHeight, setTileHeight] = useState(storedWorkspace.tileExport?.height ?? defaultHexPreset.height);
+  const [tileFeatures, setTileFeatures] = useState<HexTileFeature[]>(storedWorkspace.tileExport?.enabledFeatures ?? civ7StyleHexTileProfile.features);
   const [showPlates, setShowPlates] = useState(false);
   const [showRivers, setShowRivers] = useState(true);
   const [mapMode, setMapMode] = useState<MapMode>('biomes');
@@ -157,6 +179,118 @@ function App() {
   const generationTaskIdRef = useRef('');
   const workerRef = useRef<Worker | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const initialSyncDoneRef = useRef(false);
+  const suppressAutoPushRef = useRef(false);
+
+  const currentWorkspace = () =>
+    buildWorkspaceSettings({
+      config,
+      contentLibrary,
+      tileExport: {
+        presetId: tilePresetId,
+        width: tileWidth,
+        height: tileHeight,
+        enabledFeatures: tileFeatures
+      },
+      savedMaps
+    });
+
+  useEffect(() => {
+    saveIdentity(identity);
+  }, [identity]);
+
+  useEffect(() => {
+    saveCloudSyncSettings(cloudSync);
+  }, [cloudSync]);
+
+  useEffect(() => {
+    saveWorkspaceSettings(currentWorkspace());
+  }, [config, contentLibrary, savedMaps, tileFeatures, tileHeight, tilePresetId, tileWidth]);
+
+  useEffect(() => {
+    if (!project) return;
+    const record: SavedMapRecord = {
+      projectId: project.projectId,
+      projectName: project.projectName,
+      seed: project.seed,
+      updatedAt: project.updatedAt
+    };
+    setSavedMaps((current) => {
+      const withoutCurrent = current.filter((entry) => entry.projectId !== record.projectId);
+      return [record, ...withoutCurrent].slice(0, 12);
+    });
+  }, [project]);
+
+  useEffect(() => {
+    if (!cloudSync.keepSynced || !cloudSync.serviceBaseUrl || initialSyncDoneRef.current) return;
+    initialSyncDoneRef.current = true;
+    let cancelled = false;
+    const runInitialSync = async () => {
+      try {
+        setSyncStatus('Signing in...');
+        const signedIn = await syncIdentity(cloudSync, identity);
+        if (cancelled) return;
+        setIdentity(signedIn);
+        setSyncStatus('Checking cloud data...');
+        const pulled = await pullSyncEnvelope(cloudSync, signedIn).catch((error) => {
+          if (/404/.test(String(error?.message || ''))) return null;
+          throw error;
+        });
+        if (cancelled) return;
+        if (pulled?.workspace) {
+          suppressAutoPushRef.current = true;
+          setConfig(pulled.workspace.config);
+          setContentLibrary(pulled.workspace.contentLibrary);
+          setTilePresetId(pulled.workspace.tileExport.presetId);
+          setTileWidth(pulled.workspace.tileExport.width);
+          setTileHeight(pulled.workspace.tileExport.height);
+          setTileFeatures(pulled.workspace.tileExport.enabledFeatures);
+          setSavedMaps(pulled.workspace.savedMaps ?? []);
+          setCloudSync((current) => ({
+            ...current,
+            lastPulledAt: pulled.updatedAt,
+            lastError: ''
+          }));
+          setSyncStatus(`Synced from cloud ${new Date(pulled.updatedAt).toLocaleString()}`);
+          window.setTimeout(() => {
+            suppressAutoPushRef.current = false;
+          }, 0);
+          return;
+        }
+        setSyncStatus('Signed in. Local data will sync automatically.');
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Cloud sign-in failed';
+        setCloudSync((current) => ({ ...current, lastError: message }));
+        setSyncStatus(message);
+      }
+    };
+    void runInitialSync();
+    return () => {
+      cancelled = true;
+    };
+  }, [cloudSync, identity]);
+
+  useEffect(() => {
+    if (!cloudSync.keepSynced || !cloudSync.serviceBaseUrl || !isLoggedIn(identity) || suppressAutoPushRef.current) return;
+    const timer = window.setTimeout(async () => {
+      try {
+        setSyncStatus('Syncing changes...');
+        const envelope = buildSyncEnvelope({ identity, workspace: currentWorkspace() });
+        const synced = await pushSyncEnvelope(cloudSync, identity, envelope);
+        setCloudSync((current) => ({
+          ...current,
+          lastSyncedAt: synced.updatedAt,
+          lastError: ''
+        }));
+        setSyncStatus(`Synced ${new Date(synced.updatedAt).toLocaleString()}`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Cloud sync failed';
+        setCloudSync((current) => ({ ...current, lastError: message }));
+        setSyncStatus(message);
+      }
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [cloudSync.keepSynced, cloudSync.serviceBaseUrl, config, contentLibrary, identity, savedMaps, tileFeatures, tileHeight, tilePresetId, tileWidth]);
 
   useEffect(() => {
     const worker = new Worker(new URL('./generationWorker.ts', import.meta.url), { type: 'module' });
@@ -354,6 +488,102 @@ function App() {
     });
   };
 
+  const updateDisplayName = (displayName: string) => {
+    setIdentity((current) => ({
+      ...current,
+      displayName,
+      updatedAt: new Date().toISOString()
+    }));
+  };
+
+  const updateGoogleId = (googleId: string) => {
+    setIdentity((current) => ({
+      ...current,
+      externalIds: {
+        ...current.externalIds,
+        googleId
+      },
+      updatedAt: new Date().toISOString()
+    }));
+  };
+
+  const updateCloudSync = (partial: Partial<CloudSyncSettings>) => {
+    setCloudSync((current) => ({
+      ...current,
+      ...partial,
+      schemaVersion: 1
+    }));
+  };
+
+  const signInForSync = async () => {
+    try {
+      setSyncStatus('Signing in...');
+      const signedIn = await syncIdentity(cloudSync, identity);
+      setIdentity(signedIn);
+      setCloudSync((current) => ({ ...current, lastError: '' }));
+      setSyncStatus(`Signed in as ${signedIn.profileId}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Sign-in failed';
+      setCloudSync((current) => ({ ...current, lastError: message }));
+      setSyncStatus(message);
+    }
+  };
+
+  const pushCloudSync = async () => {
+    try {
+      setSyncStatus('Pushing settings and assets...');
+      const signedIn = isLoggedIn(identity) ? identity : await syncIdentity(cloudSync, identity);
+      setIdentity(signedIn);
+      const envelope = buildSyncEnvelope({ identity: signedIn, workspace: currentWorkspace() });
+      const synced = await pushSyncEnvelope(cloudSync, signedIn, envelope);
+      setCloudSync((current) => ({
+        ...current,
+        lastSyncedAt: synced.updatedAt,
+        lastError: ''
+      }));
+      setSyncStatus(`Pushed ${new Date(synced.updatedAt).toLocaleString()}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Cloud push failed';
+      setCloudSync((current) => ({ ...current, lastError: message }));
+      setSyncStatus(message);
+    }
+  };
+
+  const pullCloudSync = async () => {
+    try {
+      setSyncStatus('Pulling settings and assets...');
+      const synced = await pullSyncEnvelope(cloudSync, identity);
+      if (!synced) {
+        setSyncStatus('No cloud profile found for this user.');
+        return;
+      }
+      suppressAutoPushRef.current = true;
+      setIdentity(synced.identity);
+      setConfig(synced.workspace.config);
+      setContentLibrary(synced.workspace.contentLibrary);
+      setTilePresetId(synced.workspace.tileExport.presetId);
+      setTileWidth(synced.workspace.tileExport.width);
+      setTileHeight(synced.workspace.tileExport.height);
+      setTileFeatures(synced.workspace.tileExport.enabledFeatures);
+      setSavedMaps(synced.workspace.savedMaps ?? []);
+      setProject(null);
+      setCloudSync((current) => ({
+        ...current,
+        lastPulledAt: synced.updatedAt,
+        lastSyncedAt: synced.updatedAt,
+        lastError: ''
+      }));
+      setSyncStatus(`Pulled ${new Date(synced.updatedAt).toLocaleString()}`);
+      window.setTimeout(() => {
+        suppressAutoPushRef.current = false;
+      }, 0);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Cloud pull failed';
+      setCloudSync((current) => ({ ...current, lastError: message }));
+      setSyncStatus(message);
+    }
+  };
+
   return (
     <main className="app-shell" aria-busy={isGenerating}>
       <section className="toolbar" aria-label="World generation controls">
@@ -381,6 +611,21 @@ function App() {
             Generate
           </button>
         </div>
+        <section className="identity-panel" aria-label="User profile and cloud sync">
+          <div className="identity-title">
+            <span><User size={15} />Profile</span>
+            <span title={identity.profileId}>{identity.profileId.slice(0, 8)}</span>
+          </div>
+          <div className="sync-status">
+            <Cloud size={14} />
+            <span>{syncStatus}</span>
+          </div>
+          <div className="sync-meta">
+            {cloudSync.keepSynced ? (isLoggedIn(identity) ? 'Signed in and syncing when service is reachable.' : 'Sync is on. Sign in from Config.') : 'Sync is off.'}
+          </div>
+          {cloudSync.lastSyncedAt && <div className="sync-meta">Last push {new Date(cloudSync.lastSyncedAt).toLocaleString()}</div>}
+          {cloudSync.lastError && <div className="sync-error">{cloudSync.lastError}</div>}
+        </section>
         <div className="resolution-row">
           <label htmlFor="generation-resolution">Generation</label>
           <select
@@ -666,6 +911,16 @@ function App() {
           onTab={setConfigTab}
           onClose={() => setConfigOpen(false)}
           onChange={setContentLibrary}
+          identity={identity}
+          cloudSync={cloudSync}
+          syncStatus={syncStatus}
+          savedMapCount={savedMaps.length}
+          onDisplayName={updateDisplayName}
+          onGoogleId={updateGoogleId}
+          onCloudSync={updateCloudSync}
+          onSignIn={signInForSync}
+          onPush={pushCloudSync}
+          onPull={pullCloudSync}
         />
       )}
       {isGenerating && <div className="generating-overlay">Generating world</div>}
@@ -678,15 +933,36 @@ function ContentConfigModal({
   activeTab,
   onTab,
   onClose,
-  onChange
+  onChange,
+  identity,
+  cloudSync,
+  syncStatus,
+  savedMapCount,
+  onDisplayName,
+  onGoogleId,
+  onCloudSync,
+  onSignIn,
+  onPush,
+  onPull
 }: {
   library: ContentLibraryConfig;
   activeTab: ConfigTab;
   onTab: (tab: ConfigTab) => void;
   onClose: () => void;
   onChange: (library: ContentLibraryConfig) => void;
+  identity: LocalUserIdentity;
+  cloudSync: CloudSyncSettings;
+  syncStatus: string;
+  savedMapCount: number;
+  onDisplayName: (displayName: string) => void;
+  onGoogleId: (googleId: string) => void;
+  onCloudSync: (settings: Partial<CloudSyncSettings>) => void;
+  onSignIn: () => void;
+  onPush: () => void;
+  onPull: () => void;
 }) {
-  const category = library[activeTab];
+  const contentTab: ContentCategory = activeTab === 'sync' ? 'biomes' : activeTab;
+  const category = library[contentTab];
   const [selectedSetId, setSelectedSetId] = useState(category.defaultSetId);
   const selectedSet = category.sets.find((set) => set.id === selectedSetId) ?? category.sets[0];
   const visibleMembers = category.members.filter((member) => selectedSet?.memberIds.includes(member.id));
@@ -694,18 +970,18 @@ function ContentConfigModal({
   const selectedMember = category.members.find((member) => member.id === selectedMemberId) ?? visibleMembers[0] ?? category.members[0];
 
   useEffect(() => {
-    setSelectedSetId(library[activeTab].defaultSetId);
-  }, [activeTab, library]);
+    setSelectedSetId(library[contentTab].defaultSetId);
+  }, [contentTab, library]);
 
   useEffect(() => {
-    const nextCategory = library[activeTab];
+    const nextCategory = library[contentTab];
     const nextSet = nextCategory.sets.find((set) => set.id === selectedSetId) ?? nextCategory.sets[0];
     const nextMember = nextCategory.members.find((member) => nextSet?.memberIds.includes(member.id));
     if (nextMember) setSelectedMemberId(nextMember.id);
-  }, [activeTab, library, selectedSetId]);
+  }, [contentTab, library, selectedSetId]);
 
   const updateCategory = (updater: (category: ContentCategoryConfig) => ContentCategoryConfig) => {
-    onChange({ ...library, [activeTab]: updater(library[activeTab]) });
+    onChange({ ...library, [contentTab]: updater(library[contentTab]) });
   };
 
   const markDefaultSet = (setId: string) => {
@@ -717,7 +993,7 @@ function ContentConfigModal({
   };
 
   const addSet = () => {
-    const baseId = `${activeTab}-set-${category.sets.length + 1}`;
+    const baseId = `${contentTab}-set-${category.sets.length + 1}`;
     const setId = uniqueId(baseId, category.sets.map((set) => set.id));
     updateCategory((current) => ({
       ...current,
@@ -784,6 +1060,82 @@ function ContentConfigModal({
     reader.readAsDataURL(file);
   };
 
+  if (activeTab === 'sync') {
+    return (
+      <div className="modal-backdrop" role="presentation">
+        <section className="config-modal sync-config-modal" role="dialog" aria-modal="true" aria-label="Sync configuration">
+          <header className="config-modal-header">
+            <div>
+              <h2>Content Configuration</h2>
+              <p>Keep user settings, content assets, and saved maps available across machines.</p>
+            </div>
+            <button type="button" title="Close configuration" className="icon-button" onClick={onClose}><X size={18} /></button>
+          </header>
+          <ConfigTabs activeTab={activeTab} library={library} onTab={onTab} />
+          <div className="sync-config-body">
+            <section className="member-detail">
+              <h3>Sync</h3>
+              <label className="sync-toggle large">
+                <input
+                  type="checkbox"
+                  checked={cloudSync.keepSynced}
+                  onChange={(event) => onCloudSync({ keepSynced: event.target.checked })}
+                />
+                Keep data synced
+              </label>
+              <p>When this is on and you are signed in, World Forge automatically syncs configured content, uploaded assets, generation settings, hex export settings, and saved maps.</p>
+              <div className="sync-actions">
+                <button type="button" onClick={onSignIn} disabled={!cloudSync.serviceBaseUrl || !cloudSync.keepSynced}>
+                  <User size={15} />
+                  {isLoggedIn(identity) ? 'Refresh Sign-In' : 'Sign In'}
+                </button>
+                <button type="button" onClick={onPush} disabled={!cloudSync.serviceBaseUrl || !cloudSync.keepSynced}>
+                  <Upload size={15} />
+                  Sync Now
+                </button>
+                <button type="button" onClick={onPull} disabled={!cloudSync.serviceBaseUrl || !cloudSync.keepSynced || !isLoggedIn(identity)}>
+                  <Download size={15} />
+                  Pull Latest
+                </button>
+              </div>
+              <div className="sync-status">
+                <Cloud size={14} />
+                <span>{syncStatus}</span>
+              </div>
+              <div className="identity-summary-grid">
+                <div className="identity-summary-row"><span>Profile</span><span>{isLoggedIn(identity) ? identity.profileId : 'Not signed in'}</span></div>
+                <div className="identity-summary-row"><span>Saved maps</span><span>{savedMapCount}</span></div>
+                <div className="identity-summary-row"><span>Last push</span><span>{cloudSync.lastSyncedAt ? new Date(cloudSync.lastSyncedAt).toLocaleString() : 'Never'}</span></div>
+                <div className="identity-summary-row"><span>Last pull</span><span>{cloudSync.lastPulledAt ? new Date(cloudSync.lastPulledAt).toLocaleString() : 'Never'}</span></div>
+              </div>
+              {cloudSync.lastError && <div className="sync-error">{cloudSync.lastError}</div>}
+            </section>
+            <section className="member-detail">
+              <h3>Account</h3>
+              <label>
+                Display name
+                <input value={identity.displayName} onChange={(event) => onDisplayName(event.target.value)} />
+              </label>
+              <label>
+                Google ID
+                <input value={identity.externalIds.googleId} onChange={(event) => onGoogleId(event.target.value)} />
+              </label>
+              <label>
+                Service URL
+                <input
+                  value={cloudSync.serviceBaseUrl}
+                  placeholder="Configured by hosted build"
+                  onChange={(event) => onCloudSync({ serviceBaseUrl: event.target.value })}
+                />
+              </label>
+              <p>The hosted build should preconfigure the service URL. The Google ID field maps to the existing studio identity external-id table until a full OAuth flow is added.</p>
+            </section>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div className="modal-backdrop" role="presentation">
       <section className="config-modal" role="dialog" aria-modal="true" aria-label="Content configuration">
@@ -796,13 +1148,7 @@ function ContentConfigModal({
             <X size={16} />
           </button>
         </header>
-        <div className="config-tabs" role="tablist" aria-label="Content categories">
-          {(Object.keys(library) as ConfigTab[]).map((tab) => (
-            <button key={tab} type="button" role="tab" aria-selected={activeTab === tab} className={activeTab === tab ? 'active' : ''} onClick={() => onTab(tab)}>
-              {library[tab].label}
-            </button>
-          ))}
-        </div>
+        <ConfigTabs activeTab={activeTab} library={library} onTab={onTab} />
         <div className="config-body">
           <aside className="config-sets" aria-label={`${category.label} sets`}>
             <div className="config-section-title">
@@ -879,6 +1225,27 @@ function ContentConfigModal({
           </section>
         </div>
       </section>
+    </div>
+  );
+}
+
+function ConfigTabs({
+  activeTab,
+  library,
+  onTab
+}: {
+  activeTab: ConfigTab;
+  library: ContentLibraryConfig;
+  onTab: (tab: ConfigTab) => void;
+}) {
+  const tabs: ConfigTab[] = [...(Object.keys(library) as ContentCategory[]), 'sync'];
+  return (
+    <div className="config-tabs" role="tablist" aria-label="Content categories">
+      {tabs.map((tab) => (
+        <button key={tab} type="button" role="tab" aria-selected={activeTab === tab} className={activeTab === tab ? 'active' : ''} onClick={() => onTab(tab)}>
+          {tab === 'sync' ? 'Sync' : library[tab].label}
+        </button>
+      ))}
     </div>
   );
 }
