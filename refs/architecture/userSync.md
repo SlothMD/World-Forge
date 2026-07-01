@@ -10,7 +10,10 @@ This is a public open-source repository. Do not commit personal identifiers, pro
 - The app stores generation settings, content library configuration/assets, and hex export settings in local browser/Tauri storage.
 - Generated/opened worlds are remembered as a bounded saved-map library and included in the sync envelope.
 - Cloud sync is active when `Keep data synced` is on, a service URL is configured, and the user has a service identity.
-- The client uses the same lightweight identity shape as EcoMoguls: `playerId`, `authToken`, `displayName`, and `externalIds.googleId`.
+- If no compatible service is reachable, sign-in falls back to a durable local-only profile so relaunching on the same machine keeps the user logged in.
+- The client uses the same lightweight identity shape as EcoMoguls: `playerId`, `authToken`, `displayName`, `externalIds.googleId`, and `externalIds.steamId`.
+- Google sign-in is provider-driven through Google Identity Services when `VITE_GOOGLE_CLIENT_ID` is configured. The app should not ask users to paste Google account ids.
+- Steam account linking is reserved for the packaged Steam build. The launch shell can inject `window.__WORLD_FORGE_STEAM_IDENTITY__ = { steamId, displayName }`, and the app will link it without a manual Steam id field.
 
 ## Cloud Contract
 
@@ -55,7 +58,7 @@ Add two routes to the existing Flask service pattern:
 - `GET /api/world-forge/user-sync/<player_id>`: authenticate with `X-Player-Id` / `X-Player-Token`, reject mismatched player ids, return the stored envelope or `404`.
 - `PUT /api/world-forge/user-sync/<player_id>`: authenticate the same way, reject mismatches, upsert `sync_payload`, and return the saved envelope.
 
-This is sufficient for the current user-light path: hosted builds can preconfigure `VITE_WORLD_FORGE_SERVICE_URL`, the app can silently register/refresh identity when sync is on, and local changes will autosync after login. The public repo should only contain placeholder service URLs; real deployment values should stay in private TWS References material or deployment secrets.
+This is sufficient for the current user-light path: hosted builds can preconfigure `VITE_WORLD_FORGE_SERVICE_URL` and `VITE_GOOGLE_CLIENT_ID`, the app can register/refresh identity when sync is on, and local changes will autosync after provider login. The public repo should only contain placeholder service URLs/client ids; real deployment values should stay in private TWS References material or deployment secrets.
 
 ## Prior Art
 

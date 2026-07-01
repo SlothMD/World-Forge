@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createDefaultConfig, generateProject } from './index';
-import { exportHexGridSvg, exportHexTileMapJson, exportSvg, exportWforge, generateHexTileMap, importWforge, projectToJson } from '@world-forge/exporters';
-import { buildCubedSphereTopology } from '../../shared/src/index';
+import { exportHexGridSvg, exportHexTileMapJson, exportSvg, exportVttGridSvg, exportVttMetadata, exportWforge, generateHexTileMap, importWforge, projectToJson } from '@world-forge/exporters';
+import { buildCubedSphereTopology, hexTileMapPresets } from '../../shared/src/index';
 
 const seeds = [
   'earthlike-default-001',
@@ -137,18 +137,36 @@ describe('world generation MVP invariants', () => {
 
   it('exports a configurable hex tile map derived from topology facts', () => {
     const project = generateProject(createDefaultConfig('hex-tile-export-001', { width: 128, height: 64 }));
-    const tileMap = generateHexTileMap(project, { width: 18, height: 10, enabledFeatures: ['river', 'wet'] });
-    const json = JSON.parse(exportHexTileMapJson(project, { width: 18, height: 10, enabledFeatures: ['river', 'wet'] }));
+    const tileMap = generateHexTileMap(project, { width: 18, height: 10, enabledFeatures: ['minor-river', 'navigable-river', 'wet'] });
+    const json = JSON.parse(exportHexTileMapJson(project, { width: 18, height: 10, enabledFeatures: ['minor-river', 'navigable-river', 'wet'] }));
     const svg = exportHexGridSvg(project, { width: 18, height: 10 });
 
     expect(tileMap.format).toBe('world-forge-hex-tile-map');
     expect(tileMap.profile.id).toBe('civ7-style-default');
     expect(tileMap.tiles.length).toBe(180);
     expect(tileMap.tiles.every((tile) => tile.topologyCell >= 0 && tile.terrainType.length > 0)).toBe(true);
-    expect(tileMap.tiles.every((tile) => tile.features.every((feature) => feature === 'river' || feature === 'wet'))).toBe(true);
+    expect(tileMap.tiles.every((tile) => Array.isArray(tile.minorRiverEdges) && typeof tile.navigableRiverCenter === 'boolean' && typeof tile.riverStrength === 'number')).toBe(true);
+    expect(tileMap.tiles.every((tile) => Array.isArray(tile.featureDetails) && Array.isArray(tile.navigableRiverEdges) && Array.isArray(tile.ridgeEdges))).toBe(true);
+    expect(tileMap.tiles.every((tile) => tile.features.every((feature) => feature === 'minor-river' || feature === 'navigable-river' || feature === 'wet'))).toBe(true);
     expect(json.tiles.length).toBe(tileMap.tiles.length);
     expect(svg.startsWith('<svg')).toBe(true);
     expect(svg).toContain('<polygon');
+    expect(svg).toContain('<title>');
+    expect(svg).toContain('Features:');
+    expect(svg).toContain('Elevation:');
+    expect(svg).toContain('Minor river edges:');
+    expect(svg).toContain('Navigable river edges:');
+    expect(svg).toContain('Ridges:');
+  });
+
+  it('uses verified Civ 7-style map size presets', () => {
+    expect(hexTileMapPresets.map((preset) => [preset.label, preset.width, preset.height])).toEqual([
+      ['Civ 7 Tiny', 60, 38],
+      ['Civ 7 Small', 74, 46],
+      ['Civ 7 Standard', 84, 54],
+      ['Civ 7 Large', 96, 60],
+      ['Civ 7 Huge', 106, 66]
+    ]);
   });
 
   it('aligns same-row hex SVG polygons without horizontal overlap', () => {
@@ -159,6 +177,68 @@ describe('world generation MVP invariants', () => {
     expect(polygons.length).toBe(12);
     expect(Math.abs(polygons[1].minX - polygons[0].maxX)).toBeLessThan(0.01);
     expect(Math.abs(polygons[2].minX - polygons[1].maxX)).toBeLessThan(0.01);
+  });
+
+  it('keeps hex tile fill colors tied to biome while overlaying terrain symbols', () => {
+    const project = generateProject(createDefaultConfig('2883711', { width: 256, height: 128 }));
+    const tileMap = generateHexTileMap(project, { width: 60, height: 38 });
+    const svg = exportHexGridSvg(project, { width: 60, height: 38 });
+
+    expect(project.primaryWorld.rivers.every((river) => river.topologyPath?.length)).toBe(true);
+    expect(tileMap.tiles.some((tile) => tile.biome === 'desert' && (tile.morphology === 'rough' || tile.morphology === 'mountainous'))).toBe(true);
+    expect(tileMap.tiles.some((tile) => tile.biome === 'tundra' && (tile.morphology === 'rough' || tile.morphology === 'mountainous'))).toBe(true);
+    expect(tileMap.tiles.some((tile) => tile.biome === 'marine' && tile.morphology === 'lake')).toBe(true);
+    expect(tileMap.tiles.some((tile) => tile.biome === 'plains')).toBe(true);
+    expect(tileMap.tiles.some((tile) => tile.biome === 'tropical')).toBe(true);
+    expect(tileMap.tiles.some((tile) => tile.ridgeEdges.length > 0)).toBe(true);
+    expect(tileMap.tiles.some((tile) => tile.navigableRiverEdges.length > 0)).toBe(true);
+    expect(tileMap.tiles.every((tile) => tile.morphology !== 'lake' || (!tile.minorRiverEdges.length && !tile.navigableRiverEdges.length && !tile.navigableRiverCenter))).toBe(true);
+    expect(tileMap.tiles.every((tile) => !tile.navigableRiverCenter || tile.navigableRiverEdges.length > 0)).toBe(true);
+    expect(tileMap.tiles.some((tile) => tile.features.includes('ice') || tile.featureDetails.includes('ice'))).toBe(true);
+    expect(svg).toContain('fill="#e3c76b"');
+    expect(svg).toContain('fill="#c8d6c7"');
+    expect(svg).toContain('stroke-dasharray');
+    expect(svg).toContain('Minor river edges:');
+    const navigableStrokeWidths = [...svg.matchAll(/stroke="#2f7f9c" stroke-width="([0-9.]+)"/g)].map((match) => Number(match[1]));
+    expect(Math.max(...navigableStrokeWidths)).toBeGreaterThan(2);
+  });
+
+  it('exports VTT-agnostic metadata and optional hex grid overlay', () => {
+    const project = generateProject(createDefaultConfig('vtt-export-001', { width: 128, height: 64 }));
+    const metadata = JSON.parse(exportVttMetadata(project, { width: 1024, height: 512, grid: { kind: 'hex-pointy', hexSizeMiles: 1200 } }));
+    const svg = exportVttGridSvg(project, { width: 1024, height: 512, grid: { kind: 'hex-pointy', hexSizeMiles: 1200 } });
+
+    expect(metadata.format).toBe('world-forge-vtt-export');
+    expect(metadata.image.width).toBe(1024);
+    expect(metadata.grid.kind).toBe('hex-pointy');
+    expect(metadata.grid.hexSizeMiles).toBe(1200);
+    expect(metadata.grid.hexSizePx).toBeGreaterThan(8);
+    expect(metadata.image.gridFile).toContain('vtt-map-grid.png');
+    expect(svg.startsWith('<svg')).toBe(true);
+    expect(svg).toContain('<polygon');
+  });
+
+  it('emits non-authoritative preview frames during generation', () => {
+    const frames: Array<{ label: string; progress: number; width: number; height: number; bytes: number }> = [];
+    const project = generateProject(createDefaultConfig('preview-stream-001', { width: 128, height: 64 }), {
+      previewResolution: { width: 96, height: 48 },
+      onProgress: (frame) => {
+        frames.push({
+          label: frame.label,
+          progress: frame.progress,
+          width: frame.width,
+          height: frame.height,
+          bytes: frame.rgba.byteLength
+        });
+      }
+    });
+
+    expect(project.seed).toBe('preview-stream-001');
+    expect(frames.length).toBeGreaterThanOrEqual(6);
+    expect(frames[0].label).toBe('Primordial terrain');
+    expect(frames.at(-1)?.label).toBe('Biomes settling');
+    expect(frames.every((frame) => frame.width === 96 && frame.height === 48 && frame.bytes === 96 * 48 * 4)).toBe(true);
+    expect(frames.every((frame, index) => index === 0 || frame.progress >= frames[index - 1].progress)).toBe(true);
   });
 
   it('roundtrips a .wforge project package', async () => {

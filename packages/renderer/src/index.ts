@@ -6,11 +6,13 @@ export type MapTheme = {
 };
 
 export type MapMode = 'biomes' | 'elevation' | 'heightmap' | 'temperature' | 'rainfall' | 'wind' | 'current';
+export type CoastlineTreatment = 'bare' | 'toned' | 'outlined';
 
 export type RenderOptions = {
   rivers: boolean;
   plates: boolean;
   heightmap: boolean;
+  coastlineTreatment?: CoastlineTreatment;
   mode?: MapMode;
   targetResolution?: {
     width: number;
@@ -73,6 +75,10 @@ export function renderWorldToCanvas(
   }
   ctx.putImageData(image, 0, 0);
 
+  const coastlineTreatment = visible.coastlineTreatment ?? 'toned';
+  if (coastlineTreatment !== 'bare' && mode === 'biomes') {
+    drawCoastlineOverlay(ctx, world, theme, width, height, coastlineTreatment);
+  }
   if (visible.rivers) {
     drawRiverChannels(ctx, world, theme, width, height);
     drawRivers(ctx, world, theme, width, height);
@@ -283,6 +289,70 @@ function drawRiverChannels(ctx: CanvasRenderingContext2D, world: PrimaryWorld, t
   ctx.lineWidth = Math.max(0.75, 1.35 * scale);
   drawRiverChannelSegments(ctx, world, width, height, scaleX, scaleY);
   ctx.restore();
+}
+
+function drawCoastlineOverlay(ctx: CanvasRenderingContext2D, world: PrimaryWorld, theme: MapTheme, targetWidth: number, targetHeight: number, treatment: CoastlineTreatment): void {
+  const { width, height } = world.mapModel.resolution;
+  const image = ctx.getImageData(0, 0, targetWidth, targetHeight);
+  const coastLight = parseHex(theme.colors.coastline);
+  const coastWater: [number, number, number] = [11, 47, 67];
+  const outlineColor: [number, number, number] = [25, 48, 47];
+  const shelfLight = parseHex(theme.colors.shelf);
+  const radius = treatment === 'outlined' ? 3 : 3;
+
+  for (let y = 0; y < targetHeight; y += 1) {
+    for (let x = 0; x < targetWidth; x += 1) {
+      const i = sampleIndex(x, y, targetWidth, targetHeight, width, height);
+      if (!touchesOppositeWaterState(world, i, width, height, radius)) continue;
+      const offset = (y * targetWidth + x) * 4;
+      const current: [number, number, number] = [image.data[offset], image.data[offset + 1], image.data[offset + 2]];
+      const water = world.layers.water[i] === 1;
+      const immediate = touchesOppositeWaterState(world, i, width, height, 1, true);
+      const near = touchesOppositeWaterState(world, i, width, height, 2);
+      const target = water ? mix(coastWater, shelfLight, immediate ? 0.08 : 0.5) : coastLight;
+      const amount = water
+        ? immediate ? 0.52 : near ? 0.28 : 0.14
+        : immediate ? 0.48 : near ? 0.28 : 0.16;
+      const color = mix(current, target, amount);
+      image.data[offset] = color[0];
+      image.data[offset + 1] = color[1];
+      image.data[offset + 2] = color[2];
+    }
+  }
+
+  if (treatment === 'outlined') {
+    for (let y = 0; y < targetHeight; y += 1) {
+      for (let x = 0; x < targetWidth; x += 1) {
+        const i = sampleIndex(x, y, targetWidth, targetHeight, width, height);
+        if (world.layers.water[i] === 1 || !touchesOppositeWaterState(world, i, width, height, 1, true)) continue;
+        const offset = (y * targetWidth + x) * 4;
+        const current: [number, number, number] = [image.data[offset], image.data[offset + 1], image.data[offset + 2]];
+        const color = mix(current, outlineColor, 0.46);
+        image.data[offset] = color[0];
+        image.data[offset + 1] = color[1];
+        image.data[offset + 2] = color[2];
+      }
+    }
+  }
+
+  ctx.putImageData(image, 0, 0);
+}
+
+function touchesOppositeWaterState(world: PrimaryWorld, index: number, width: number, height: number, radius = 2, cardinalOnly = false): boolean {
+  const water = world.layers.water[index];
+  const x = index % width;
+  const y = Math.floor(index / width);
+  for (let oy = -radius; oy <= radius; oy += 1) {
+    const yy = y + oy;
+    if (yy < 0 || yy >= height) continue;
+    for (let ox = -radius; ox <= radius; ox += 1) {
+      if (ox === 0 && oy === 0) continue;
+      if (cardinalOnly && Math.abs(ox) + Math.abs(oy) > 1) continue;
+      const xx = (x + ox + width) % width;
+      if (world.layers.water[yy * width + xx] !== water) return true;
+    }
+  }
+  return false;
 }
 
 function drawRiverChannelSegments(

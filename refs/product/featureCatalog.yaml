@@ -11,6 +11,9 @@ features:
   - id: primary-world-map
     status: active
     summary: Generate one detailed primary planet with plate-influenced elevation, water, climate, hydrology, biomes, and ice.
+  - id: live-generation-preview
+    status: active
+    summary: Stream low-resolution non-authoritative preview frames from the generation worker so users can watch terrain, plates, water, climate, hydrology, and biomes evolve before final rendering completes.
   - id: project-package
     status: active
     summary: Save and reopen zipped .wforge packages containing manifest and layer data.
@@ -20,6 +23,9 @@ features:
   - id: future-export-profiles
     status: deferred
     summary: Add GeoJSON, CSV/tile, Godot, Tiled, Civ-like, and VTT export profiles after MVP.
+  - id: vtt-integration
+    status: active
+    summary: Export VTT-ready neutral ZIP packages with a rendered map, optional hex-grid SVG overlay, and profile metadata before platform-specific Foundry, Roll20, or Owlbear assumptions.
   - id: post-generate-tile-map
     status: active
     summary: Generate a configurable hex tiled abstraction from an existing generated world, with editable Civ 7-style size presets and initial Civ-style terrain/feature mapping.

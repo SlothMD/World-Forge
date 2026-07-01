@@ -36,6 +36,35 @@ type DiagnosticsRecorder = {
   snapshot(): GenerationDiagnostics;
 };
 
+export type GenerationPreviewStage =
+  | 'primordial'
+  | 'plates'
+  | 'elevation'
+  | 'aged'
+  | 'water'
+  | 'climate'
+  | 'hydrology'
+  | 'biomes';
+
+export type GenerationPreviewFrame = {
+  stage: GenerationPreviewStage;
+  label: string;
+  progress: number;
+  width: number;
+  height: number;
+  rgba: Uint8ClampedArray<ArrayBuffer>;
+};
+
+export type GenerationProgressCallback = (frame: GenerationPreviewFrame) => void;
+
+export type GenerateProjectOptions = {
+  onProgress?: GenerationProgressCallback;
+  previewResolution?: {
+    width: number;
+    height: number;
+  };
+};
+
 type TopologyPlate = Plate & {
   centerCell: number;
   centerX3: number;
@@ -117,7 +146,7 @@ function createDiagnosticsRecorder(): DiagnosticsRecorder {
   };
 }
 
-export function generateProject(input: Partial<GenerationConfig> = {}): WorldProject {
+export function generateProject(input: Partial<GenerationConfig> = {}, options: GenerateProjectOptions = {}): WorldProject {
   const diagnostics = createDiagnosticsRecorder();
   const config: GenerationConfig = {
     ...createDefaultConfig(input.seed ?? `seed-${Date.now()}`),
@@ -127,7 +156,7 @@ export function generateProject(input: Partial<GenerationConfig> = {}): WorldPro
   const rng = new SeededRandom(config.seed);
   const selectedValues = diagnostics.measure('select-values', () => selectValues(config, rng));
   const solarSystem = diagnostics.measure('solar-system', () => generateSolarSystem(config.seed, selectedValues, rng));
-  const primaryWorld = diagnostics.measure('primary-world', () => generatePrimaryWorld(config, selectedValues, solarSystem, rng, diagnostics));
+  const primaryWorld = diagnostics.measure('primary-world', () => generatePrimaryWorld(config, selectedValues, solarSystem, rng, diagnostics, options));
   const metrics = diagnostics.measure('metrics', () => calculateMetrics(primaryWorld, selectedValues));
   const now = '2026-06-24T00:00:00.000Z';
 
@@ -242,7 +271,8 @@ function generatePrimaryWorld(
   values: SelectedValues,
   solarSystem: SolarSystem,
   rng: SeededRandom,
-  diagnostics: DiagnosticsRecorder
+  diagnostics: DiagnosticsRecorder,
+  options: GenerateProjectOptions
 ): PrimaryWorld {
   const { width, height } = config.outputResolution;
   const cellCount = width * height;
@@ -274,21 +304,29 @@ function generatePrimaryWorld(
   const topologyRiver = new Float32Array(topology.cellCount);
   const topologyLakes = new Uint8Array(topology.cellCount);
   const primordial = diagnostics.measure('topology.terrain.primordial', () => generatePrimordialFields(topology, values, rng));
+  emitTopologyPreview(options, 'primordial', 'Primordial terrain', 0.08, topology, primordial.elevation);
   const topologyPlateData = diagnostics.measure('topology.plates.create', () => createTopologyPlates(topology, values.plateCount, rng, primordial));
 
   diagnostics.measure('topology.plates.assign', () => assignTopologyPlateLayer(topologyPlates, topology, topologyPlateData));
+  emitTopologyPreview(options, 'plates', 'Plate layout', 0.18, topology, primordial.elevation, undefined, undefined, topologyPlates);
   const terrainPhases = diagnostics.measure('topology.terrain.phases', () => createTerrainPhases(rng));
   const topologyCrust = diagnostics.measure('topology.terrain.crust-fields', () => generateCrustFields(topology, values, terrainPhases.phaseA, terrainPhases.phaseB, terrainPhases.continentPhase));
   diagnostics.measure('topology.terrain.elevation', () => generateTopologyElevation(topologyElevation, topologyPlates, topologyPlateData, topology, values, primordial, topologyCrust, terrainPhases));
+  emitTopologyPreview(options, 'elevation', 'Tectonic uplift', 0.38, topology, topologyElevation);
   let seaLevel = diagnostics.measure('topology.water.sea-level.pre-aging', () => findTopologySeaLevelForOceanTarget(topologyElevation, topology.areaWeights, values.oceanPercentage, values.seaLevel));
   diagnostics.measure('topology.terrain.aging', () => applyTopologyTerrainAging(topologyElevation, topology, values.systemAgeGy, values.impactFrequency, seaLevel, rng, diagnostics));
+  emitTopologyPreview(options, 'aged', 'Aging terrain', 0.52, topology, topologyElevation);
   diagnostics.measure('topology.terrain.enrichment', () => applyTopologyTerrainEnrichment(topologyElevation, topology, values, rng));
   seaLevel = diagnostics.measure('topology.water.sea-level.final', () => findTopologySeaLevelForOceanTarget(topologyElevation, topology.areaWeights, values.oceanPercentage, values.seaLevel));
   diagnostics.measure('topology.water.mask', () => assignTopologyWater(topologyWater, topologyElevation, seaLevel));
+  emitTopologyPreview(options, 'water', 'Sea level and basins', 0.62, topology, topologyElevation, topologyWater, seaLevel);
   diagnostics.measure('topology.climate', () => generateTopologyClimate(topologyTemperature, topologyWetness, topologyElevation, topologyWater, topology, values, tideInfluence));
+  emitTopologyPreview(options, 'climate', 'Climate and rainfall', 0.74, topology, topologyElevation, topologyWater, seaLevel, undefined, topologyWetness);
   diagnostics.measure('topology.glaciation', () => assignTopologyIce(topologyIce, topologyElevation, topologyTemperature, topologyWetness, topology, seaLevel));
   const topologyRivers = diagnostics.measure('topology.hydrology', () => generateTopologyHydrology(topologyRiver, topologyLakes, topologyElevation, topologyWater, topologyWetness, topology, seaLevel, values.riverDensity));
+  emitTopologyPreview(options, 'hydrology', 'Hydrology and rivers', 0.86, topology, topologyElevation, topologyWater, seaLevel, undefined, topologyWetness, topologyRiver);
   diagnostics.measure('topology.biomes', () => assignTopologyBiomes(topologyBiomes, topologyIce, topologyElevation, topologyWater, topologyTemperature, topologyWetness, topologyRiver, topologyLakes, topology, seaLevel));
+  emitTopologyPreview(options, 'biomes', 'Biomes settling', 0.93, topology, topologyElevation, topologyWater, seaLevel, undefined, topologyWetness, topologyRiver, topologyBiomes, topologyIce);
   diagnostics.measure('projection.equirectangular', () =>
     projectTopologyToEquirectangular(
       elevation,
@@ -803,6 +841,7 @@ function projectTopologyRiver(river: TopologyRiverPath, topology: CubedSphereTop
     sourceIndex: projectedPath[0],
     mouthIndex: projectedPath[projectedPath.length - 1],
     path: projectedPath,
+    topologyPath: river.path,
     terminus: river.terminus
   };
 }
@@ -867,6 +906,149 @@ function histogramPercentile(values: Float32Array, p: number, min: number, max: 
 
 function wrappedAngle(value: number): number {
   return Math.atan2(Math.sin(value), Math.cos(value));
+}
+
+function emitTopologyPreview(
+  options: GenerateProjectOptions,
+  stage: GenerationPreviewStage,
+  label: string,
+  progress: number,
+  topology: CubedSphereTopology,
+  elevation: Float32Array,
+  water?: Uint8Array,
+  seaLevel?: number,
+  plates?: Uint16Array,
+  wetness?: Float32Array,
+  river?: Float32Array,
+  biomes?: Uint8Array,
+  ice?: Uint8Array
+): void {
+  if (!options.onProgress) return;
+  const width = Math.max(64, Math.min(1024, Math.round(options.previewResolution?.width ?? 512)));
+  const height = Math.max(32, Math.min(512, Math.round(options.previewResolution?.height ?? 256)));
+  options.onProgress({
+    stage,
+    label,
+    progress,
+    width,
+    height,
+    rgba: renderTopologyPreview(topology, width, height, stage, elevation, water, seaLevel, plates, wetness, river, biomes, ice)
+  });
+}
+
+function renderTopologyPreview(
+  topology: CubedSphereTopology,
+  width: number,
+  height: number,
+  stage: GenerationPreviewStage,
+  elevation: Float32Array,
+  water?: Uint8Array,
+  seaLevel?: number,
+  plates?: Uint16Array,
+  wetness?: Float32Array,
+  river?: Float32Array,
+  biomes?: Uint8Array,
+  ice?: Uint8Array
+): Uint8ClampedArray<ArrayBuffer> {
+  const rgba = new Uint8ClampedArray(width * height * 4);
+  const [lowElevation, highElevation] = previewPercentileRange(elevation, 0.02, 0.98);
+  for (let y = 0; y < height; y += 1) {
+    const latitude = Math.PI / 2 - (y / Math.max(1, height - 1)) * Math.PI;
+    for (let x = 0; x < width; x += 1) {
+      const longitude = (x / width) * Math.PI * 2 - Math.PI;
+      const cell = cubedSphereCellForLonLat(topology, longitude, latitude);
+      const color = previewColorForCell(stage, cell, elevation, lowElevation, highElevation, water, seaLevel, plates, wetness, river, biomes, ice);
+      const offset = (y * width + x) * 4;
+      rgba[offset] = color[0];
+      rgba[offset + 1] = color[1];
+      rgba[offset + 2] = color[2];
+      rgba[offset + 3] = 255;
+    }
+  }
+  return rgba;
+}
+
+function previewPercentileRange(values: Float32Array, lowPercentile: number, highPercentile: number): [number, number] {
+  const sampled: number[] = [];
+  const stride = Math.max(1, Math.floor(values.length / 8192));
+  for (let index = 0; index < values.length; index += stride) sampled.push(values[index]);
+  const low = percentile(sampled, lowPercentile);
+  const high = percentile(sampled, highPercentile);
+  return low === high ? [Math.min(...sampled), Math.max(...sampled)] : [low, high];
+}
+
+function previewColorForCell(
+  stage: GenerationPreviewStage,
+  cell: number,
+  elevation: Float32Array,
+  lowElevation: number,
+  highElevation: number,
+  water?: Uint8Array,
+  seaLevel?: number,
+  plates?: Uint16Array,
+  wetness?: Float32Array,
+  river?: Float32Array,
+  biomes?: Uint8Array,
+  ice?: Uint8Array
+): [number, number, number] {
+  const height01 = normalizeValue(elevation[cell], lowElevation, highElevation);
+  const isWater = water?.[cell] === 1;
+  if (biomes) {
+    const biome = codeToBiome(biomes[cell]);
+    let color: [number, number, number] = [134, 169, 92];
+    if (isWater) {
+      const depth = seaLevel === undefined ? 0.5 : clamp((seaLevel - elevation[cell]) / 0.42);
+      color = mixRgb([64, 150, 173], [24, 74, 112], depth);
+    } else if (ice?.[cell]) color = [238, 246, 247];
+    else if (biome === 'desert') color = [212, 190, 113];
+    else if (biome === 'forest') color = [67, 130, 76];
+    else if (biome === 'rainforest') color = [38, 103, 70];
+    else if (biome === 'tundra') color = [182, 199, 173];
+    else if (biome === 'wetland') color = [91, 143, 118];
+    else if (biome === 'mountain') color = [130, 124, 113];
+    if (river && river[cell] > 0.14 && !isWater) color = mixRgb(color, [208, 244, 249], clamp(river[cell] * 0.9));
+    return color;
+  }
+  if (water) {
+    if (isWater) {
+      const depth = seaLevel === undefined ? 0.5 : clamp((seaLevel - elevation[cell]) / 0.42);
+      return mixRgb([71, 160, 182], [23, 71, 111], depth);
+    }
+    if (river && river[cell] > 0.12) return mixRgb(previewLandColor(height01, wetness?.[cell]), [208, 244, 249], clamp(river[cell] * 0.85));
+    return previewLandColor(height01, wetness?.[cell]);
+  }
+  if (plates) {
+    const plateTint = platePreviewTint(plates[cell]);
+    return mixRgb(previewLandColor(height01), plateTint, 0.34);
+  }
+  return previewLandColor(height01, wetness?.[cell], stage === 'primordial');
+}
+
+function previewLandColor(height01: number, wetness = 0.42, primordial = false): [number, number, number] {
+  if (primordial) return mixRgb([40, 70, 96], [214, 209, 176], height01);
+  let color: [number, number, number];
+  if (height01 < 0.34) color = mixRgb([68, 107, 83], [135, 162, 94], height01 / 0.34);
+  else if (height01 < 0.72) color = mixRgb([135, 162, 94], [165, 145, 116], (height01 - 0.34) / 0.38);
+  else color = mixRgb([165, 145, 116], [242, 241, 232], (height01 - 0.72) / 0.28);
+  if (wetness > 0) color = mixRgb(color, [47, 125, 82], clamp((wetness - 0.42) * 0.55));
+  return color;
+}
+
+function platePreviewTint(plate: number): [number, number, number] {
+  const hue = (Math.imul(plate + 37, 1103515245) >>> 0) / 4294967295;
+  const r = Math.round(116 + Math.sin(hue * Math.PI * 2) * 34);
+  const g = Math.round(126 + Math.sin((hue + 0.33) * Math.PI * 2) * 32);
+  const b = Math.round(121 + Math.sin((hue + 0.66) * Math.PI * 2) * 30);
+  return [r, g, b];
+}
+
+function mixRgb(a: [number, number, number], b: [number, number, number], t: number): [number, number, number] {
+  const amount = clamp(t);
+  return [
+    Math.round(a[0] + (b[0] - a[0]) * amount),
+    Math.round(a[1] + (b[1] - a[1]) * amount),
+    Math.round(a[2] + (b[2] - a[2]) * amount)
+  ];
 }
 
 function projectTopologyToEquirectangular(
@@ -1142,7 +1324,31 @@ function assignTopologyIce(ice: Uint8Array, elevation: Float32Array, temperature
   for (let cell = 0; cell < ice.length; cell += 1) {
     const polarLatitude = Math.abs(topology.latitudes[cell]) / (Math.PI / 2);
     const highMountain = elevation[cell] > seaLevel + 0.54;
-    if ((polarLatitude > 0.84 && temperature[cell] < 1.5) || (highMountain && temperature[cell] < -2 + wetness[cell] * 2)) ice[cell] = 1;
+    const x = topology.positions[cell * 3];
+    const y = topology.positions[cell * 3 + 1];
+    const z = topology.positions[cell * 3 + 2];
+    const iceEdgeNoise = coherentSphericalNoise(x * 3.2 + 11.7, y * 3.2 - 4.9, z * 3.2 + 8.1) * 0.055 + coherentSphericalNoise(x * 8.5 - 2.3, y * 8.5 + 14.1, z * 8.5) * 0.025;
+    const wetnessPush = clamp(wetness[cell] - 0.45, -0.22, 0.3) * 0.08;
+    const highlandPush = Math.max(0, elevation[cell] - seaLevel - 0.22) * 0.08;
+    const polarIceLine = 0.84 + iceEdgeNoise - wetnessPush - highlandPush;
+    if ((polarLatitude > polarIceLine && temperature[cell] < 1.8) || (highMountain && temperature[cell] < -2 + wetness[cell] * 2)) ice[cell] = 1;
+  }
+  smoothTopologyIce(ice, temperature, topology);
+}
+
+function smoothTopologyIce(ice: Uint8Array, temperature: Float32Array, topology: CubedSphereTopology): void {
+  const copy = new Uint8Array(ice);
+  for (let cell = 0; cell < ice.length; cell += 1) {
+    let frozenNeighbors = 0;
+    let validNeighbors = 0;
+    for (let i = 0; i < 4; i += 1) {
+      const neighbor = topology.neighbors[cell * 4 + i];
+      if (neighbor < 0) continue;
+      validNeighbors += 1;
+      frozenNeighbors += copy[neighbor];
+    }
+    if (copy[cell] === 1 && frozenNeighbors === 0 && temperature[cell] > -4) ice[cell] = 0;
+    if (copy[cell] === 0 && validNeighbors > 0 && frozenNeighbors >= 3 && temperature[cell] < -1.5) ice[cell] = 1;
   }
 }
 
@@ -1217,7 +1423,7 @@ function generateTopologyHydrology(
       current = next;
     }
     if (path.length < minNamedPathLength) continue;
-    for (let i = 0; i < path.length; i += 1) river[path[i]] += lerp(1.3, 0.28, i / path.length);
+    for (let i = 0; i < path.length; i += 1) river[path[i]] += lerp(0.28, 1.3, i / path.length);
     paths.push({ path, terminus });
   }
   return paths;

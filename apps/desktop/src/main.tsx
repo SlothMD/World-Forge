@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Cloud, Download, FileJson, FolderOpen, Hexagon, Image, Layers, RefreshCw, Save, Settings, Shuffle, Upload, User, X } from 'lucide-react';
+import { Cloud, Download, FileJson, FolderOpen, Hexagon, Image, Layers, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, RefreshCw, Save, Settings, Shuffle, Upload, User, X } from 'lucide-react';
+import JSZip from 'jszip';
 import * as THREE from 'three';
-import { createDefaultConfig, generateProject } from '@world-forge/generator-core';
-import { exportHexGridSvg, exportHexTileMapJson, exportSvg, exportWforge, importWforge, projectToJson } from '@world-forge/exporters';
-import { MapMode, cleanGameMapTheme, renderWorldToCanvas } from '@world-forge/renderer';
+import { GenerationPreviewFrame, createDefaultConfig, generateProject } from '@world-forge/generator-core';
+import { deserializeProject, exportHexGridSvg, exportHexTileMapJson, exportSvg, exportVttGridSvg, exportVttMetadata, exportWforge, importWforge, projectToJson, serializeProject } from '@world-forge/exporters';
+import { CoastlineTreatment, MapMode, cleanGameMapTheme, renderWorldToCanvas } from '@world-forge/renderer';
 import {
   GenerationConfig,
   HexTileFeature,
@@ -30,6 +31,7 @@ import {
   buildSyncEnvelope,
   buildWorkspaceSettings,
   isLoggedIn,
+  isLocalOnlyIdentity,
   loadCloudSyncSettings,
   loadIdentity,
   loadWorkspaceSettings,
@@ -40,11 +42,19 @@ import {
   saveWorkspaceSettings,
   syncIdentity
 } from './sync';
+import { ExternalAccountIdentity, detectSteamIdentity, googleSignInAvailable, signInWithGoogle } from './accountProviders';
 import './styles.css';
 
 type RangeKey = keyof ParameterRanges;
 type ViewMode = 'map' | 'globe';
 type RightPanelTab = 'world' | 'hex';
+type LeftPanelTab = 'generator' | 'worlds';
+type ExportKey = 'png' | 'svg' | 'json' | 'wforge' | 'hexSvg' | 'tileJson' | 'vtt';
+type ExportTaskState = {
+  status: 'idle' | 'running' | 'complete' | 'error';
+  progress: number;
+  message: string;
+};
 type ConfigTab = ContentCategory | 'sync';
 
 const rangeLabels: Record<RangeKey, string> = {
@@ -86,11 +96,32 @@ const tileFeatureLabels: Record<HexTileFeature, string> = {
   vegetated: 'Vegetated',
   wet: 'Wet',
   floodplain: 'Floodplain',
-  river: 'Rivers',
+  'minor-river': 'Minor rivers',
+  'navigable-river': 'Navigable rivers',
   snow: 'Snow',
   ice: 'Ice',
   aquatic: 'Aquatic'
 };
+
+const exportKeys: ExportKey[] = ['png', 'svg', 'json', 'wforge', 'hexSvg', 'tileJson', 'vtt'];
+
+function initialExportTasks(): Record<ExportKey, ExportTaskState> {
+  return Object.fromEntries(exportKeys.map((key) => [key, { status: 'idle', progress: 0, message: '' }])) as Record<ExportKey, ExportTaskState>;
+}
+
+function normalizeTileFeatures(features: string[] | undefined): HexTileFeature[] {
+  const source = features?.length ? features : civ7StyleHexTileProfile.features;
+  const normalized = new Set<HexTileFeature>();
+  for (const feature of source) {
+    if (feature === 'river') {
+      normalized.add('minor-river');
+      normalized.add('navigable-river');
+    } else if (civ7StyleHexTileProfile.features.includes(feature as HexTileFeature)) {
+      normalized.add(feature as HexTileFeature);
+    }
+  }
+  return normalized.size ? [...normalized] : civ7StyleHexTileProfile.features;
+}
 
 const worldPresets: Array<{ label: string; ranges: Partial<ParameterRanges>; tolerance?: number }> = [
   {
@@ -166,21 +197,35 @@ function App() {
   const [tilePresetId, setTilePresetId] = useState(storedWorkspace.tileExport?.presetId ?? defaultHexPreset.id);
   const [tileWidth, setTileWidth] = useState(storedWorkspace.tileExport?.width ?? defaultHexPreset.width);
   const [tileHeight, setTileHeight] = useState(storedWorkspace.tileExport?.height ?? defaultHexPreset.height);
-  const [tileFeatures, setTileFeatures] = useState<HexTileFeature[]>(storedWorkspace.tileExport?.enabledFeatures ?? civ7StyleHexTileProfile.features);
+  const [tileFeatures, setTileFeatures] = useState<HexTileFeature[]>(() => normalizeTileFeatures(storedWorkspace.tileExport?.enabledFeatures as string[] | undefined));
+  const [vttGridEnabled, setVttGridEnabled] = useState(true);
+  const [vttHexSizeMiles, setVttHexSizeMiles] = useState(1200);
+  const [vttHexSizeMilesInput, setVttHexSizeMilesInput] = useState('1200');
+  const [vttResolution, setVttResolution] = useState(resolutionOptions[2]);
   const [showPlates, setShowPlates] = useState(false);
   const [showRivers, setShowRivers] = useState(true);
   const [mapMode, setMapMode] = useState<MapMode>('biomes');
+  const [coastlineTreatment, setCoastlineTreatment] = useState<CoastlineTreatment>('toned');
   const [viewMode, setViewMode] = useState<ViewMode>('map');
   const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>('world');
+  const [leftPanelTab, setLeftPanelTab] = useState<LeftPanelTab>('generator');
+  const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false);
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState(0);
+  const [generationStage, setGenerationStage] = useState('');
+  const [exportTasks, setExportTasks] = useState<Record<ExportKey, ExportTaskState>>(() => initialExportTasks());
+  const [worldLibraryStatus, setWorldLibraryStatus] = useState('');
   const generationEstimateRef = useRef(24000);
   const generationStartedAtRef = useRef(0);
   const generationTaskIdRef = useRef('');
   const workerRef = useRef<Worker | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const generationPreviewRef = useRef<GenerationPreviewFrame | null>(null);
+  const generationPreviewFrameRef = useRef(0);
   const initialSyncDoneRef = useRef(false);
   const suppressAutoPushRef = useRef(false);
+  const steamLinkDoneRef = useRef(false);
 
   const currentWorkspace = () =>
     buildWorkspaceSettings({
@@ -208,18 +253,45 @@ function App() {
   }, [config, contentLibrary, savedMaps, tileFeatures, tileHeight, tilePresetId, tileWidth]);
 
   useEffect(() => {
-    if (!project) return;
-    const record: SavedMapRecord = {
-      projectId: project.projectId,
-      projectName: project.projectName,
-      seed: project.seed,
-      updatedAt: project.updatedAt
+    if (steamLinkDoneRef.current) return;
+    const steamIdentity = detectSteamIdentity();
+    if (!steamIdentity) return;
+    steamLinkDoneRef.current = true;
+    const nextIdentity = identityWithExternalAccount(identity, steamIdentity);
+    setIdentity(nextIdentity);
+    if (!cloudSync.keepSynced) return;
+    let cancelled = false;
+    const linkSteam = async () => {
+      try {
+        setSyncStatus('Signing in with Steam...');
+        const signedIn = await syncIdentity(cloudSync, nextIdentity);
+        if (cancelled) return;
+        setIdentity(signedIn);
+        setCloudSync((current) => ({ ...current, lastError: '' }));
+        setSyncStatus(isLocalOnlyIdentity(signedIn) ? 'Steam account linked locally.' : 'Steam account linked.');
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Steam sign-in failed';
+        setCloudSync((current) => ({ ...current, lastError: message }));
+        setSyncStatus(message);
+      }
     };
-    setSavedMaps((current) => {
-      const withoutCurrent = current.filter((entry) => entry.projectId !== record.projectId);
-      return [record, ...withoutCurrent].slice(0, 12);
-    });
-  }, [project]);
+    void linkSteam();
+    return () => {
+      cancelled = true;
+    };
+  }, [cloudSync, identity]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadStoredWorlds = async () => {
+      const stored = await listStoredWorldRecords().catch(() => []);
+      if (!cancelled && stored.length) setSavedMaps((current) => mergeSavedMapRecords(current, stored));
+    };
+    void loadStoredWorlds();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!cloudSync.keepSynced || !cloudSync.serviceBaseUrl || initialSyncDoneRef.current) return;
@@ -231,6 +303,11 @@ function App() {
         const signedIn = await syncIdentity(cloudSync, identity);
         if (cancelled) return;
         setIdentity(signedIn);
+        if (isLocalOnlyIdentity(signedIn)) {
+          setCloudSync((current) => ({ ...current, lastError: '' }));
+          setSyncStatus('Signed in locally. Cloud service is not configured or unavailable.');
+          return;
+        }
         setSyncStatus('Checking cloud data...');
         const pulled = await pullSyncEnvelope(cloudSync, signedIn).catch((error) => {
           if (/404/.test(String(error?.message || ''))) return null;
@@ -244,7 +321,7 @@ function App() {
           setTilePresetId(pulled.workspace.tileExport.presetId);
           setTileWidth(pulled.workspace.tileExport.width);
           setTileHeight(pulled.workspace.tileExport.height);
-          setTileFeatures(pulled.workspace.tileExport.enabledFeatures);
+          setTileFeatures(normalizeTileFeatures(pulled.workspace.tileExport.enabledFeatures as string[]));
           setSavedMaps(pulled.workspace.savedMaps ?? []);
           setCloudSync((current) => ({
             ...current,
@@ -271,7 +348,7 @@ function App() {
   }, [cloudSync, identity]);
 
   useEffect(() => {
-    if (!cloudSync.keepSynced || !cloudSync.serviceBaseUrl || !isLoggedIn(identity) || suppressAutoPushRef.current) return;
+    if (!cloudSync.keepSynced || !cloudSync.serviceBaseUrl || !isLoggedIn(identity) || isLocalOnlyIdentity(identity) || suppressAutoPushRef.current) return;
     const timer = window.setTimeout(async () => {
       try {
         setSyncStatus('Syncing changes...');
@@ -295,22 +372,50 @@ function App() {
   useEffect(() => {
     const worker = new Worker(new URL('./generationWorker.ts', import.meta.url), { type: 'module' });
     workerRef.current = worker;
-    worker.onmessage = (event: MessageEvent<{ type: 'complete' | 'error'; id: string; project?: WorldProject; message?: string }>) => {
+    worker.onmessage = (event: MessageEvent<{ type: 'progress' | 'complete' | 'error'; id: string; preview?: GenerationPreviewFrame; project?: WorldProject; message?: string }>) => {
       if (event.data.id !== generationTaskIdRef.current) return;
-      if (event.data.type === 'complete' && event.data.project) {
+      if (event.data.type === 'progress' && event.data.preview) {
+        generationPreviewRef.current = event.data.preview;
+        setGenerationStage(event.data.preview.label);
+        setGenerationProgress((current) => Math.max(current, event.data.preview?.progress ?? current));
+        scheduleGenerationPreviewPaint();
+        return;
+      } else if (event.data.type === 'complete' && event.data.project) {
+        generationPreviewRef.current = null;
         setProject(event.data.project);
         generationEstimateRef.current = Math.max(3000, event.data.project.diagnostics?.totalMs ?? generationEstimateRef.current);
       } else if (event.data.type === 'error') {
         console.error(event.data.message ?? 'Generation failed');
       }
       setGenerationProgress(1);
+      setGenerationStage('');
       setIsGenerating(false);
     };
     worker.onerror = (event) => {
       console.error(event.message);
+      setGenerationStage('');
       setIsGenerating(false);
     };
+    const scheduleGenerationPreviewPaint = () => {
+      if (generationPreviewFrameRef.current) return;
+      generationPreviewFrameRef.current = window.requestAnimationFrame(() => {
+        generationPreviewFrameRef.current = 0;
+        drawGenerationPreview();
+      });
+    };
+    const drawGenerationPreview = () => {
+      const preview = generationPreviewRef.current;
+      const canvas = canvasRef.current;
+      if (!preview || !canvas) return;
+      canvas.width = preview.width;
+      canvas.height = preview.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      const pixels = new Uint8ClampedArray(preview.rgba.buffer as ArrayBuffer);
+      ctx.putImageData(new ImageData(pixels, preview.width, preview.height), 0, 0);
+    };
     return () => {
+      if (generationPreviewFrameRef.current) window.cancelAnimationFrame(generationPreviewFrameRef.current);
       worker.terminate();
       if (workerRef.current === worker) workerRef.current = null;
     };
@@ -331,6 +436,7 @@ function App() {
 
   useEffect(() => {
     if (!canvasRef.current || viewMode !== 'map') return;
+    if (isGenerating) return;
     if (!project) {
       const ctx = canvasRef.current.getContext('2d');
       if (ctx) ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
@@ -341,10 +447,11 @@ function App() {
       rivers: showRiverOverlay,
       plates: showPlates,
       heightmap: mapMode === 'elevation',
+      coastlineTreatment,
       mode: mapMode,
       targetResolution: previewResolution.width > 0 ? previewResolution : undefined
     });
-  }, [mapMode, previewResolution, project, showPlates, showRivers, viewMode]);
+  }, [coastlineTreatment, isGenerating, mapMode, previewResolution, project, showPlates, showRivers, viewMode]);
 
   const invalidRanges = useMemo(() => {
     return Object.entries(config.parameterRanges)
@@ -358,6 +465,8 @@ function App() {
     generationTaskIdRef.current = taskId;
     generationStartedAtRef.current = performance.now();
     generationEstimateRef.current = Math.max(3000, project?.diagnostics?.totalMs ?? generationEstimateRef.current);
+    generationPreviewRef.current = null;
+    setGenerationStage('Starting generation...');
     setGenerationProgress(0.02);
     setIsGenerating(true);
     if (workerRef.current) {
@@ -370,6 +479,7 @@ function App() {
       setProject(nextProject);
       generationEstimateRef.current = Math.max(3000, nextProject.diagnostics?.totalMs ?? generationEstimateRef.current);
       setGenerationProgress(1);
+      setGenerationStage('');
       setIsGenerating(false);
     }, 20);
   };
@@ -418,30 +528,66 @@ function App() {
     setConfig({ ...config, seed });
   };
 
-  const downloadPng = () => {
+  const setExportTask = (key: ExportKey, partial: Partial<ExportTaskState>) => {
+    setExportTasks((current) => ({
+      ...current,
+      [key]: {
+        ...current[key],
+        ...partial
+      }
+    }));
+  };
+
+  const runExport = async (key: ExportKey, label: string, task: (progress: (value: number) => void) => Promise<void>) => {
+    try {
+      setExportTask(key, { status: 'running', message: label, progress: 0.03 });
+      await nextPaint();
+      await task((value) => setExportTask(key, { progress: Math.max(0.03, Math.min(0.98, value)) }));
+      setExportTask(key, { status: 'complete', message: 'Done', progress: 1 });
+      window.setTimeout(() => setExportTask(key, { status: 'idle', message: '', progress: 0 }), 1600);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Export failed';
+      setExportTask(key, { status: 'error', message, progress: 1 });
+      console.error(error);
+      window.setTimeout(() => setExportTask(key, { status: 'idle', message: '', progress: 0 }), 5000);
+    }
+  };
+
+  const downloadPng = async () => {
     if (!project) return;
-    const canvas = document.createElement('canvas');
-    const showRiverOverlay = showRivers && mapMode !== 'elevation' && mapMode !== 'heightmap';
-    renderWorldToCanvas(canvas, project, cleanGameMapTheme, {
-      rivers: showRiverOverlay,
-      plates: showPlates,
-      heightmap: mapMode === 'elevation',
-      mode: mapMode,
-      targetResolution: exportResolution
+    await runExport('png', 'Rendering PNG...', async (progress) => {
+      const canvas = document.createElement('canvas');
+      const showRiverOverlay = showRivers && mapMode !== 'elevation' && mapMode !== 'heightmap';
+      renderWorldToCanvas(canvas, project, cleanGameMapTheme, {
+        rivers: showRiverOverlay,
+        plates: showPlates,
+        heightmap: mapMode === 'elevation',
+        coastlineTreatment,
+        mode: mapMode,
+        targetResolution: exportResolution
+      });
+      progress(0.65);
+      downloadBlob(await canvasToBlob(canvas, 'image/png'), `${project.projectName}.png`);
     });
-    canvas.toBlob((blob) => {
-      if (blob) downloadBlob(blob, `${project.projectName}.png`);
-    }, 'image/png');
   };
 
-  const downloadJson = () => {
+  const downloadJson = async () => {
     if (!project) return;
-    downloadBlob(new Blob([projectToJson(project)], { type: 'application/json' }), `${project.projectName}.json`);
+    await runExport('json', 'Preparing JSON...', async (progress) => {
+      const json = projectToJson(project, false);
+      progress(0.85);
+      await nextPaint();
+      downloadBlob(new Blob([json], { type: 'application/json' }), `${project.projectName}.json`);
+    });
   };
 
-  const downloadSvg = () => {
+  const downloadSvg = async () => {
     if (!project) return;
-    downloadBlob(new Blob([exportSvg(project)], { type: 'image/svg+xml' }), `${project.projectName}.svg`);
+    await runExport('svg', 'Preparing SVG...', async (progress) => {
+      const svg = exportSvg(project);
+      progress(0.85);
+      downloadBlob(new Blob([svg], { type: 'image/svg+xml' }), `${project.projectName}.svg`);
+    });
   };
 
   const tileExportConfig = () => ({
@@ -451,19 +597,69 @@ function App() {
     enabledFeatures: tileFeatures
   });
 
-  const downloadHexGridSvg = () => {
+  const downloadHexGridSvg = async () => {
     if (!project) return;
-    downloadBlob(new Blob([exportHexGridSvg(project, tileExportConfig())], { type: 'image/svg+xml' }), `${project.projectName}-hex-grid.svg`);
+    await runExport('hexSvg', 'Preparing hex SVG...', async (progress) => {
+      const svg = exportHexGridSvg(project, tileExportConfig());
+      progress(0.85);
+      downloadBlob(new Blob([svg], { type: 'image/svg+xml' }), `${project.projectName}-hex-grid.svg`);
+    });
   };
 
-  const downloadHexTileJson = () => {
+  const downloadHexTileJson = async () => {
     if (!project) return;
-    downloadBlob(new Blob([exportHexTileMapJson(project, tileExportConfig())], { type: 'application/json' }), `${project.projectName}-hex-tiles.json`);
+    await runExport('tileJson', 'Preparing tile JSON...', async (progress) => {
+      const json = exportHexTileMapJson(project, tileExportConfig());
+      progress(0.85);
+      downloadBlob(new Blob([json], { type: 'application/json' }), `${project.projectName}-hex-tiles.json`);
+    });
   };
 
   const downloadPackage = async () => {
     if (!project) return;
-    downloadBlob(await exportWforge(project), `${project.projectName}.wforge`);
+    await runExport('wforge', 'Preparing .wforge...', async (progress) => {
+      const blob = await exportWforge(project, {
+        compressionLevel: 1,
+        onProgress: (percent) => progress(percent)
+      });
+      downloadBlob(blob, `${project.projectName}.wforge`);
+    });
+  };
+
+  const downloadVttPackage = async () => {
+    if (!project) return;
+    await runExport('vtt', 'Preparing VTT ZIP...', async (progress) => {
+      const zip = new JSZip();
+      const canvas = document.createElement('canvas');
+      renderWorldToCanvas(canvas, project, cleanGameMapTheme, {
+        rivers: showRivers,
+        plates: false,
+        heightmap: false,
+        coastlineTreatment,
+        mode: 'biomes',
+        targetResolution: vttResolution
+      });
+      progress(0.22);
+      const config = {
+        width: vttResolution.width,
+        height: vttResolution.height,
+        grid: {
+          kind: vttGridEnabled ? 'hex-pointy' as const : 'none' as const,
+          hexSizeMiles: vttHexSizeMiles
+        }
+      };
+      const baseName = safeFileName(project.projectName);
+      const imageBlob = await canvasToBlob(canvas, 'image/png');
+      zip.file(`${baseName}-vtt-map.png`, imageBlob);
+      zip.file(`${baseName}-vtt-metadata.json`, exportVttMetadata(project, config));
+      if (vttGridEnabled) {
+        drawVttHexGridOverlay(canvas, project, vttHexSizeMiles);
+        zip.file(`${baseName}-vtt-map-grid.png`, await canvasToBlob(canvas, 'image/png'));
+        zip.file(`${baseName}-vtt-grid.svg`, exportVttGridSvg(project, config));
+      }
+      progress(0.62);
+      downloadBlob(await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 1 } }, (metadata) => progress(0.62 + metadata.percent * 0.0035)), `${project.projectName}-vtt.zip`);
+    });
   };
 
   const openPackage = async (file?: File) => {
@@ -471,6 +667,51 @@ function App() {
     const parsed = await importWforge(file);
     setProject(parsed);
     setConfig(parsed.config);
+  };
+
+  const saveCurrentWorldInApp = async () => {
+    if (!project) return;
+    setWorldLibraryStatus('Saving world...');
+    try {
+      const projectToSave = { ...project, updatedAt: new Date().toISOString() };
+      const record = savedMapRecordForProject(projectToSave);
+      await saveStoredWorld(projectToSave);
+      setProject(projectToSave);
+      setSavedMaps((current) => mergeSavedMapRecords([record], current).slice(0, 24));
+      setWorldLibraryStatus(`Saved ${project.projectName}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to save world';
+      setWorldLibraryStatus(message);
+    }
+  };
+
+  const loadStoredWorld = async (record: SavedMapRecord) => {
+    setWorldLibraryStatus(`Loading ${record.projectName}...`);
+    try {
+      const loaded = await loadStoredWorldProject(record.projectId);
+      if (!loaded) {
+        setWorldLibraryStatus('Saved world data is not available on this machine.');
+        return;
+      }
+      setProject(loaded);
+      setConfig(loaded.config);
+      setWorldLibraryStatus(`Loaded ${loaded.projectName}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to load world';
+      setWorldLibraryStatus(message);
+    }
+  };
+
+  const deleteStoredWorld = async (record: SavedMapRecord) => {
+    setWorldLibraryStatus(`Removing ${record.projectName}...`);
+    try {
+      await deleteStoredWorldProject(record.projectId);
+      setSavedMaps((current) => current.filter((entry) => entry.projectId !== record.projectId));
+      setWorldLibraryStatus(`Removed ${record.projectName}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to remove world';
+      setWorldLibraryStatus(message);
+    }
   };
 
   const applyTilePreset = (presetId: string) => {
@@ -488,6 +729,13 @@ function App() {
     });
   };
 
+  const commitVttHexSizeMiles = (value = vttHexSizeMilesInput) => {
+    const parsed = Number(value);
+    const next = Number.isFinite(parsed) ? Math.max(50, Math.round(parsed)) : vttHexSizeMiles;
+    setVttHexSizeMiles(next);
+    setVttHexSizeMilesInput(String(next));
+  };
+
   const updateDisplayName = (displayName: string) => {
     setIdentity((current) => ({
       ...current,
@@ -496,14 +744,9 @@ function App() {
     }));
   };
 
-  const updateGoogleId = (googleId: string) => {
+  const updateExternalAccount = (account: ExternalAccountIdentity) => {
     setIdentity((current) => ({
-      ...current,
-      externalIds: {
-        ...current.externalIds,
-        googleId
-      },
-      updatedAt: new Date().toISOString()
+      ...identityWithExternalAccount(current, account)
     }));
   };
 
@@ -518,10 +761,14 @@ function App() {
   const signInForSync = async () => {
     try {
       setSyncStatus('Signing in...');
-      const signedIn = await syncIdentity(cloudSync, identity);
+      const steamIdentity = detectSteamIdentity();
+      const providerIdentity = steamIdentity ?? (googleSignInAvailable() ? await signInWithGoogle() : null);
+      const identityToSync = providerIdentity ? identityWithExternalAccount(identity, providerIdentity) : identity;
+      if (providerIdentity) updateExternalAccount(providerIdentity);
+      const signedIn = await syncIdentity(cloudSync, identityToSync);
       setIdentity(signedIn);
       setCloudSync((current) => ({ ...current, lastError: '' }));
-      setSyncStatus(`Signed in as ${signedIn.profileId}`);
+      setSyncStatus(isLocalOnlyIdentity(signedIn) ? 'Signed in locally. Cloud service is not configured or unavailable.' : `Signed in as ${signedIn.profileId}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Sign-in failed';
       setCloudSync((current) => ({ ...current, lastError: message }));
@@ -534,6 +781,11 @@ function App() {
       setSyncStatus('Pushing settings and assets...');
       const signedIn = isLoggedIn(identity) ? identity : await syncIdentity(cloudSync, identity);
       setIdentity(signedIn);
+      if (isLocalOnlyIdentity(signedIn)) {
+        setCloudSync((current) => ({ ...current, lastError: '' }));
+        setSyncStatus('Signed in locally. Cloud service is not configured or unavailable.');
+        return;
+      }
       const envelope = buildSyncEnvelope({ identity: signedIn, workspace: currentWorkspace() });
       const synced = await pushSyncEnvelope(cloudSync, signedIn, envelope);
       setCloudSync((current) => ({
@@ -551,6 +803,10 @@ function App() {
 
   const pullCloudSync = async () => {
     try {
+      if (isLocalOnlyIdentity(identity)) {
+        setSyncStatus('Cloud pull needs a service-backed login.');
+        return;
+      }
       setSyncStatus('Pulling settings and assets...');
       const synced = await pullSyncEnvelope(cloudSync, identity);
       if (!synced) {
@@ -564,7 +820,7 @@ function App() {
       setTilePresetId(synced.workspace.tileExport.presetId);
       setTileWidth(synced.workspace.tileExport.width);
       setTileHeight(synced.workspace.tileExport.height);
-      setTileFeatures(synced.workspace.tileExport.enabledFeatures);
+      setTileFeatures(normalizeTileFeatures(synced.workspace.tileExport.enabledFeatures as string[]));
       setSavedMaps(synced.workspace.savedMaps ?? []);
       setProject(null);
       setCloudSync((current) => ({
@@ -584,16 +840,46 @@ function App() {
     }
   };
 
+  const profileStatus = (() => {
+    if (!cloudSync.keepSynced) return { className: 'off', label: 'Sync off', title: 'Sync is turned off.' };
+    if (cloudSync.lastError) return { className: 'warn', label: isLoggedIn(identity) ? identity.displayName : 'Not Logged In', title: cloudSync.lastError };
+    if (isLoggedIn(identity) && cloudSync.serviceBaseUrl && !isLocalOnlyIdentity(identity)) return { className: 'online', label: identity.displayName, title: `Signed in. ${syncStatus}` };
+    if (isLoggedIn(identity)) return { className: 'local', label: identity.displayName, title: 'Signed in locally. Cloud service is not configured or unavailable.' };
+    return { className: 'offline', label: 'Not Logged In', title: syncStatus };
+  })();
+  const vttHexMetrics = project && vttGridEnabled ? calculateVttHexMetrics(project, vttResolution.width, vttResolution.height, vttHexSizeMiles) : null;
+  const tileHexScaleMiles = project ? Math.round(planetCircumferenceMiles(project) / Math.max(1, tileWidth)) : null;
+
   return (
-    <main className="app-shell" aria-busy={isGenerating}>
-      <section className="toolbar" aria-label="World generation controls">
+    <main className={`app-shell ${leftPanelCollapsed ? 'left-collapsed' : ''} ${rightPanelCollapsed ? 'right-collapsed' : ''}`} aria-busy={isGenerating}>
+      <section className={`toolbar ${leftPanelCollapsed ? 'panel-collapsed' : ''}`} aria-label="World generation controls">
         <div className="brand">
-          <strong>World Forge</strong>
-          <span>Seeded map generator</span>
-          <button type="button" title="Configure content sets" className="icon-button" onClick={() => setConfigOpen(true)}>
-            <Settings size={16} />
+          {!leftPanelCollapsed && (
+            <>
+              <strong>World Forge</strong>
+              <button type="button" title="Configure content sets" className="icon-button" onClick={() => setConfigOpen(true)}>
+                <Settings size={16} />
+              </button>
+            </>
+          )}
+          <button type="button" title={leftPanelCollapsed ? 'Expand generation panel' : 'Collapse generation panel'} className="icon-button panel-toggle" onClick={() => setLeftPanelCollapsed((collapsed) => !collapsed)}>
+            {leftPanelCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
           </button>
         </div>
+        {leftPanelCollapsed ? (
+          <div className="collapsed-panel-label">Generation</div>
+        ) : (
+        <>
+        <div className="panel-tabs left-tabs" role="tablist" aria-label="Left panel sections">
+          <button type="button" role="tab" aria-selected={leftPanelTab === 'generator'} className={leftPanelTab === 'generator' ? 'active' : ''} onClick={() => setLeftPanelTab('generator')}>
+            Generator
+          </button>
+          <button type="button" role="tab" aria-selected={leftPanelTab === 'worlds'} className={leftPanelTab === 'worlds' ? 'active' : ''} onClick={() => setLeftPanelTab('worlds')}>
+            My Worlds
+          </button>
+        </div>
+        {leftPanelTab === 'generator' ? (
+        <>
         <div className="seed-row">
           <label htmlFor="seed">Seed</label>
           <input
@@ -611,21 +897,18 @@ function App() {
             Generate
           </button>
         </div>
-        <section className="identity-panel" aria-label="User profile and cloud sync">
-          <div className="identity-title">
-            <span><User size={15} />Profile</span>
-            <span title={identity.profileId}>{identity.profileId.slice(0, 8)}</span>
-          </div>
-          <div className="sync-status">
-            <Cloud size={14} />
-            <span>{syncStatus}</span>
-          </div>
-          <div className="sync-meta">
-            {cloudSync.keepSynced ? (isLoggedIn(identity) ? 'Signed in and syncing when service is reachable.' : 'Sync is on. Sign in from Config.') : 'Sync is off.'}
-          </div>
-          {cloudSync.lastSyncedAt && <div className="sync-meta">Last push {new Date(cloudSync.lastSyncedAt).toLocaleString()}</div>}
-          {cloudSync.lastError && <div className="sync-error">{cloudSync.lastError}</div>}
-        </section>
+        <button
+          type="button"
+          className={`profile-pill ${profileStatus.className}`}
+          title={profileStatus.title}
+          onClick={() => {
+            setConfigTab('sync');
+            setConfigOpen(true);
+          }}
+        >
+          <User size={15} />
+          <span>{profileStatus.label}</span>
+        </button>
         <div className="resolution-row">
           <label htmlFor="generation-resolution">Generation</label>
           <select
@@ -716,6 +999,42 @@ function App() {
             />
           ))}
         </div>
+        </>
+        ) : (
+          <div className="my-worlds-panel" role="tabpanel" aria-label="My Worlds">
+            <div className="world-library-actions">
+              <button type="button" disabled={!project} onClick={saveCurrentWorldInApp}>
+                <Save size={16} />
+                Save Current
+              </button>
+              <span>{savedMaps.length} saved</span>
+            </div>
+            {worldLibraryStatus && <div className="world-library-status">{worldLibraryStatus}</div>}
+            {savedMaps.length === 0 ? (
+              <div className="empty-library">
+                <strong>No saved worlds</strong>
+                <span>Generate a world, then save it here for in-app loading.</span>
+              </div>
+            ) : (
+              <div className="world-list">
+                {savedMaps.map((record) => (
+                  <article key={record.projectId} className={`world-list-item ${project?.projectId === record.projectId ? 'active' : ''}`}>
+                    <div>
+                      <strong>{record.projectName}</strong>
+                      <span>Seed {record.seed} · {new Date(record.updatedAt).toLocaleString()}</span>
+                    </div>
+                    <div className="world-list-actions">
+                      <button type="button" onClick={() => loadStoredWorld(record)}>Load</button>
+                      <button type="button" className="subtle-button" onClick={() => deleteStoredWorld(record)}>Remove</button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        </>
+        )}
       </section>
 
       <section className="map-pane" aria-label="Generated world map">
@@ -725,8 +1044,7 @@ function App() {
             <label><input type="radio" name="view-mode" checked={viewMode === 'globe'} onChange={() => setViewMode('globe')} /> Globe</label>
             <label><input type="checkbox" checked={showRivers} onChange={(event) => setShowRivers(event.target.checked)} /> Rivers</label>
             <label><input type="checkbox" checked={showPlates} onChange={(event) => setShowPlates(event.target.checked)} /> Plates</label>
-            <label htmlFor="map-mode">Filter</label>
-            <select id="map-mode" value={mapMode} onChange={(event) => setMapMode(event.target.value as MapMode)}>
+            <select id="map-mode" aria-label="Map filter" value={mapMode} onChange={(event) => setMapMode(event.target.value as MapMode)}>
               <option value="biomes">Biomes</option>
               <option value="elevation">Elevation</option>
               <option value="heightmap">Heightmap</option>
@@ -735,12 +1053,17 @@ function App() {
               <option value="wind">Wind</option>
               <option value="current">Current</option>
             </select>
+            <select aria-label="Coastline treatment" value={coastlineTreatment} onChange={(event) => setCoastlineTreatment(event.target.value as CoastlineTreatment)} disabled={mapMode !== 'biomes'}>
+              <option value="bare">Bare coast</option>
+              <option value="toned">Toned coast</option>
+              <option value="outlined">Outlined coast</option>
+            </select>
           </div>
           <div className="download-actions">
-            <button type="button" onClick={downloadPng} disabled={!project} title="Export PNG"><Image size={16} />PNG</button>
-            <button type="button" onClick={downloadSvg} disabled={!project} title="Export simplified SVG"><Layers size={16} />SVG</button>
-            <button type="button" onClick={downloadJson} disabled={!project} title="Export JSON"><FileJson size={16} />JSON</button>
-            <button type="button" onClick={downloadPackage} disabled={!project} title="Save .wforge package"><Save size={16} />.wforge</button>
+            <ExportButton icon={<Image size={16} />} label="PNG" task={exportTasks.png} disabled={!project} title="Export PNG" onClick={downloadPng} />
+            <ExportButton icon={<Layers size={16} />} label="SVG" task={exportTasks.svg} disabled={!project} title="Export simplified SVG" onClick={downloadSvg} />
+            <ExportButton icon={<FileJson size={16} />} label="JSON" task={exportTasks.json} disabled={!project} title="Export JSON" onClick={downloadJson} />
+            <ExportButton icon={<Save size={16} />} label=".wforge" task={exportTasks.wforge} disabled={!project} title="Save .wforge package" onClick={downloadPackage} />
             <label className="file-button" title="Open .wforge package">
               <FolderOpen size={16} />Open
               <input type="file" accept=".wforge" onChange={(event) => openPackage(event.target.files?.[0])} />
@@ -750,26 +1073,38 @@ function App() {
         <div className="canvas-wrap">
           {isGenerating && (
             <div className="generation-progress" role="status" aria-live="polite">
-              <span>Generating world</span>
+              <span>{generationStage || 'Generating world'}</span>
               <progress value={generationProgress} max={1} />
               <output>{Math.round(generationProgress * 100)}%</output>
             </div>
           )}
-          {!project ? (
+          {!project && !isGenerating ? (
             <div className="empty-map">
               <strong>No world generated</strong>
               <span>Adjust settings, then generate or open a .wforge package.</span>
             </div>
-          ) : viewMode === 'map' ? (
-            <canvas ref={canvasRef} aria-label={`Generated map for ${project.projectName}`} />
-          ) : (
+          ) : viewMode === 'map' || isGenerating ? (
+            <canvas ref={canvasRef} aria-label={project ? `Generated map for ${project.projectName}` : 'Generating map preview'} />
+          ) : project ? (
             <GlobeViewer project={project} mapMode={mapMode} showRivers={showRivers} showPlates={showPlates} />
+          ) : (
+            <div className="empty-map">
+              <strong>No world generated</strong>
+              <span>Adjust settings, then generate or open a .wforge package.</span>
+            </div>
           )}
         </div>
         {project && mapMode === 'biomes' && viewMode === 'map' && <BiomeLegend />}
       </section>
 
-      <aside className="summary" aria-label="World details and exports">
+      <aside className={`summary ${rightPanelCollapsed ? 'panel-collapsed' : ''}`} aria-label="World details and exports">
+        <button type="button" title={rightPanelCollapsed ? 'Expand details panel' : 'Collapse details panel'} className="icon-button panel-toggle" onClick={() => setRightPanelCollapsed((collapsed) => !collapsed)}>
+          {rightPanelCollapsed ? <PanelRightOpen size={16} /> : <PanelRightClose size={16} />}
+        </button>
+        {rightPanelCollapsed ? (
+          <div className="collapsed-panel-label">Details</div>
+        ) : (
+        <>
         <div className="summary-tabs" role="tablist" aria-label="Right panel">
           <button type="button" role="tab" aria-selected={rightPanelTab === 'world'} className={rightPanelTab === 'world' ? 'active' : ''} onClick={() => setRightPanelTab('world')}>
             World
@@ -893,15 +1228,65 @@ function App() {
               ))}
             </div>
             <div className="tile-export-actions">
-              <button type="button" onClick={downloadHexGridSvg} disabled={!project} title="Export hex grid SVG"><Layers size={16} />Hex SVG</button>
-              <button type="button" onClick={downloadHexTileJson} disabled={!project} title="Export terrain tile JSON"><FileJson size={16} />Tile JSON</button>
+              <ExportButton icon={<Layers size={16} />} label="Hex SVG" task={exportTasks.hexSvg} disabled={!project} title="Export hex grid SVG" onClick={downloadHexGridSvg} />
+              <ExportButton icon={<FileJson size={16} />} label="Tile JSON" task={exportTasks.tileJson} disabled={!project} title="Export terrain tile JSON" onClick={downloadHexTileJson} />
+            </div>
+            <div className="vtt-export-block">
+              <div className="tile-export-title">
+                <Image size={16} />
+                <strong>VTT package</strong>
+              </div>
+              <label htmlFor="vtt-resolution">
+                Image size
+                <select id="vtt-resolution" value={vttResolution.label} onChange={(event) => setVttResolution(resolutionOptions.find((option) => option.label === event.target.value) ?? resolutionOptions[2])}>
+                  {resolutionOptions.map((option) => (
+                    <option key={option.label} value={option.label}>
+                      {option.label.replace('Fast ', '').replace('Default ', '').replace('Large ', '').replace('High ', '').replace('Ultra ', '')}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="sync-toggle">
+                <input type="checkbox" checked={vttGridEnabled} onChange={(event) => setVttGridEnabled(event.target.checked)} />
+                Include hex grid overlay
+              </label>
+              <label htmlFor="vtt-hex-size">
+                Hex size miles
+                <input
+                  id="vtt-hex-size"
+                  min="50"
+                  max="5000"
+                  step="50"
+                  type="number"
+                  value={vttHexSizeMilesInput}
+                  disabled={!vttGridEnabled}
+                  onBlur={() => commitVttHexSizeMiles()}
+                  onChange={(event) => setVttHexSizeMilesInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') commitVttHexSizeMiles();
+                  }}
+                />
+              </label>
+              <div className="export-readout">
+                <span>Grid hexes</span>
+                <strong>{vttHexMetrics ? `${vttHexMetrics.columns} x ${vttHexMetrics.rows}` : 'No grid'}</strong>
+              </div>
+              <div className="tile-export-actions">
+                <ExportButton icon={<Download size={16} />} label="VTT ZIP" task={exportTasks.vtt} disabled={!project} title="Export VTT-ready ZIP" onClick={downloadVttPackage} />
+              </div>
             </div>
             <div className="system">
               <h3>Profile</h3>
               <p>{civ7StyleHexTileProfile.label}</p>
-              <p>{project ? `${tileWidth} x ${tileHeight} pointy-top odd-row hexes sampled from generated topology facts.` : 'Generate or open a world before exporting tiles.'}</p>
+              <div className="export-readout">
+                <span>Hex scale</span>
+                <strong>{tileHexScaleMiles ? `${tileHexScaleMiles.toLocaleString()} miles` : 'Generate world'}</strong>
+              </div>
+              <p>{project ? `${tileWidth} x ${tileHeight} pointy-top odd-row hexes sampled from generated topology facts. VTT export is a neutral map package with optional hex overlay and metadata.` : 'Generate or open a world before exporting tiles or VTT packages.'}</p>
             </div>
           </div>
+        )}
+        </>
         )}
       </aside>
       {configOpen && (
@@ -916,7 +1301,6 @@ function App() {
           syncStatus={syncStatus}
           savedMapCount={savedMaps.length}
           onDisplayName={updateDisplayName}
-          onGoogleId={updateGoogleId}
           onCloudSync={updateCloudSync}
           onSignIn={signInForSync}
           onPush={pushCloudSync}
@@ -939,7 +1323,6 @@ function ContentConfigModal({
   syncStatus,
   savedMapCount,
   onDisplayName,
-  onGoogleId,
   onCloudSync,
   onSignIn,
   onPush,
@@ -955,7 +1338,6 @@ function ContentConfigModal({
   syncStatus: string;
   savedMapCount: number;
   onDisplayName: (displayName: string) => void;
-  onGoogleId: (googleId: string) => void;
   onCloudSync: (settings: Partial<CloudSyncSettings>) => void;
   onSignIn: () => void;
   onPush: () => void;
@@ -1085,15 +1467,15 @@ function ContentConfigModal({
               </label>
               <p>When this is on and you are signed in, World Forge automatically syncs configured content, uploaded assets, generation settings, hex export settings, and saved maps.</p>
               <div className="sync-actions">
-                <button type="button" onClick={onSignIn} disabled={!cloudSync.serviceBaseUrl || !cloudSync.keepSynced}>
+                <button type="button" onClick={onSignIn} disabled={!cloudSync.keepSynced}>
                   <User size={15} />
                   {isLoggedIn(identity) ? 'Refresh Sign-In' : 'Sign In'}
                 </button>
-                <button type="button" onClick={onPush} disabled={!cloudSync.serviceBaseUrl || !cloudSync.keepSynced}>
+                <button type="button" onClick={onPush} disabled={!cloudSync.serviceBaseUrl || !cloudSync.keepSynced || isLocalOnlyIdentity(identity)}>
                   <Upload size={15} />
                   Sync Now
                 </button>
-                <button type="button" onClick={onPull} disabled={!cloudSync.serviceBaseUrl || !cloudSync.keepSynced || !isLoggedIn(identity)}>
+                <button type="button" onClick={onPull} disabled={!cloudSync.serviceBaseUrl || !cloudSync.keepSynced || !isLoggedIn(identity) || isLocalOnlyIdentity(identity)}>
                   <Download size={15} />
                   Pull Latest
                 </button>
@@ -1116,10 +1498,14 @@ function ContentConfigModal({
                 Display name
                 <input value={identity.displayName} onChange={(event) => onDisplayName(event.target.value)} />
               </label>
-              <label>
-                Google ID
-                <input value={identity.externalIds.googleId} onChange={(event) => onGoogleId(event.target.value)} />
-              </label>
+              <div className="identity-summary-grid">
+                <div className="identity-summary-row"><span>Google</span><span>{identity.externalIds.googleId ? 'Linked' : 'Not linked'}</span></div>
+                <div className="identity-summary-row"><span>Steam</span><span>{identity.externalIds.steamId ? 'Linked' : 'Not linked'}</span></div>
+              </div>
+              <button type="button" onClick={onSignIn} disabled={!cloudSync.keepSynced}>
+                <User size={15} />
+                {googleSignInAvailable() ? 'Sign In with Google' : 'Sign In'}
+              </button>
               <label>
                 Service URL
                 <input
@@ -1128,7 +1514,7 @@ function ContentConfigModal({
                   onChange={(event) => onCloudSync({ serviceBaseUrl: event.target.value })}
                 />
               </label>
-              <p>The hosted build should preconfigure the service URL. The Google ID field maps to the existing studio identity external-id table until a full OAuth flow is added.</p>
+              <p>The hosted build should preconfigure Google and service credentials. Steam builds can inject the Steam account at launch, and the app links it without a manual ID field.</p>
             </section>
           </div>
         </section>
@@ -1626,6 +2012,97 @@ function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
 
+function identityWithExternalAccount(identity: LocalUserIdentity, account: ExternalAccountIdentity): LocalUserIdentity {
+  const displayName = account.displayName?.trim();
+  return {
+    ...identity,
+    displayName: displayName && identity.displayName === 'World Builder' ? displayName : identity.displayName,
+    externalIds: {
+      ...identity.externalIds,
+      googleId: account.provider === 'google' ? account.externalId : identity.externalIds.googleId,
+      steamId: account.provider === 'steam' ? account.externalId : identity.externalIds.steamId
+    },
+    updatedAt: new Date().toISOString()
+  };
+}
+
+const worldLibraryDbName = 'world-forge-library';
+const worldLibraryStore = 'worlds';
+
+type StoredWorldRecord = SavedMapRecord & {
+  project: unknown;
+};
+
+function savedMapRecordForProject(project: WorldProject): SavedMapRecord {
+  return {
+    projectId: project.projectId,
+    projectName: project.projectName,
+    seed: project.seed,
+    updatedAt: project.updatedAt
+  };
+}
+
+function mergeSavedMapRecords(...groups: SavedMapRecord[][]): SavedMapRecord[] {
+  const byId = new Map<string, SavedMapRecord>();
+  for (const record of groups.flat()) {
+    const existing = byId.get(record.projectId);
+    if (!existing || new Date(record.updatedAt).getTime() >= new Date(existing.updatedAt).getTime()) {
+      byId.set(record.projectId, record);
+    }
+  }
+  return [...byId.values()].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+}
+
+async function saveStoredWorld(project: WorldProject): Promise<void> {
+  const record: StoredWorldRecord = {
+    ...savedMapRecordForProject(project),
+    project: serializeProject(project, { includeLayerData: true })
+  };
+  const db = await openWorldLibraryDb();
+  await idbRequest(db.transaction(worldLibraryStore, 'readwrite').objectStore(worldLibraryStore).put(record));
+  db.close();
+}
+
+async function loadStoredWorldProject(projectId: string): Promise<WorldProject | null> {
+  const db = await openWorldLibraryDb();
+  const record = await idbRequest<StoredWorldRecord | undefined>(db.transaction(worldLibraryStore, 'readonly').objectStore(worldLibraryStore).get(projectId));
+  db.close();
+  return record?.project ? deserializeProject(record.project) : null;
+}
+
+async function deleteStoredWorldProject(projectId: string): Promise<void> {
+  const db = await openWorldLibraryDb();
+  await idbRequest(db.transaction(worldLibraryStore, 'readwrite').objectStore(worldLibraryStore).delete(projectId));
+  db.close();
+}
+
+async function listStoredWorldRecords(): Promise<SavedMapRecord[]> {
+  const db = await openWorldLibraryDb();
+  const records = await idbRequest<StoredWorldRecord[]>(db.transaction(worldLibraryStore, 'readonly').objectStore(worldLibraryStore).getAll());
+  db.close();
+  return records.map(({ project, ...record }) => record).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+}
+
+function openWorldLibraryDb(): Promise<IDBDatabase> {
+  if (!('indexedDB' in globalThis)) return Promise.reject(new Error('In-app world storage is not available in this environment.'));
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(worldLibraryDbName, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(worldLibraryStore)) db.createObjectStore(worldLibraryStore, { keyPath: 'projectId' });
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error('Unable to open world library.'));
+  });
+}
+
+function idbRequest<T = unknown>(request: IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error('World library request failed.'));
+  });
+}
+
 function RangeControl({
   label,
   range,
@@ -1683,6 +2160,26 @@ function formatRange(min: number, max: number, unit?: string, label?: string): s
   return `${min.toFixed(places)}-${max.toFixed(places)}${unit ? ` ${unit}` : ''}`;
 }
 
+function ExportButton({ icon, label, task, disabled, title, onClick }: { icon: React.ReactNode; label: string; task: ExportTaskState; disabled: boolean; title: string; onClick: () => void }) {
+  const running = task.status === 'running';
+  const complete = task.status === 'complete';
+  const errored = task.status === 'error';
+  const progressLabel = running ? `${Math.round(task.progress * 100)}%` : complete ? 'Done' : errored ? 'Error' : label;
+  return (
+    <button
+      type="button"
+      className={`export-button ${task.status}`}
+      disabled={disabled || running}
+      title={task.message || title}
+      style={{ '--progress': task.progress } as React.CSSProperties}
+      onClick={onClick}
+    >
+      {icon}
+      <span>{progressLabel}</span>
+    </button>
+  );
+}
+
 function Metric({ label, value, status }: { label: string; value: string; status?: 'ok' | 'warn' }) {
   return (
     <div className={`metric ${status ?? ''}`}>
@@ -1726,8 +2223,74 @@ function downloadBlob(blob: Blob, filename: string) {
   const link = document.createElement('a');
   link.href = href;
   link.download = filename.replace(/[^a-z0-9._-]+/gi, '-');
+  link.style.display = 'none';
+  document.body.appendChild(link);
   link.click();
-  URL.revokeObjectURL(href);
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(href), 1000);
+}
+
+function nextPaint(): Promise<void> {
+  return new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, type: string): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error('Unable to encode canvas export.'));
+    }, type);
+  });
+}
+
+function drawVttHexGridOverlay(canvas: HTMLCanvasElement, project: WorldProject, hexSizeMiles: number): void {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const circumferenceMiles = planetCircumferenceMiles(project);
+  const milesPerPixel = circumferenceMiles / canvas.width;
+  const hexWidth = Math.max(8, hexSizeMiles / Math.max(0.0001, milesPerPixel));
+  const radius = hexWidth / Math.sqrt(3);
+  const rowStep = radius * 1.5;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(16, 27, 31, 0.62)';
+  ctx.lineWidth = Math.max(1, hexWidth * 0.018);
+  let row = 0;
+  for (let cy = radius; cy <= canvas.height + radius; cy += rowStep) {
+    const rowOffset = row % 2 === 1 ? hexWidth / 2 : 0;
+    for (let cx = rowOffset; cx <= canvas.width + hexWidth; cx += hexWidth) {
+      ctx.beginPath();
+      for (let point = 0; point < 6; point += 1) {
+        const angle = ((60 * point - 90) * Math.PI) / 180;
+        const x = cx + radius * Math.cos(angle);
+        const y = cy + radius * Math.sin(angle);
+        if (point === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.stroke();
+    }
+    row += 1;
+  }
+  ctx.restore();
+}
+
+function calculateVttHexMetrics(project: WorldProject, width: number, height: number, hexSizeMiles: number): { columns: number; rows: number; hexSizePx: number } {
+  const milesPerPixel = planetCircumferenceMiles(project) / Math.max(1, width);
+  const hexSizePx = Math.max(8, hexSizeMiles / Math.max(0.0001, milesPerPixel));
+  const radius = hexSizePx / Math.sqrt(3);
+  return {
+    columns: Math.ceil(width / hexSizePx),
+    rows: Math.ceil(height / Math.max(1, radius * 1.5)),
+    hexSizePx: Math.round(hexSizePx)
+  };
+}
+
+function planetCircumferenceMiles(project: WorldProject): number {
+  return Math.PI * 2 * 3959 * Math.max(0.1, project.primaryWorld.sizeClass);
+}
+
+function safeFileName(value: string): string {
+  return value.replace(/[^a-z0-9._-]+/gi, '-');
 }
 
 createRoot(document.getElementById('root')!).render(<App />);

@@ -26,3 +26,11 @@ roadmap:
     horizon: later
     status: planned
     summary: Optional export profiles such as GeoJSON, CSV/tile data, Markdown summary, Godot, Tiled, and Civ-style abstractions after global-topology fundamentals hold.
+  - id: slice-5-world-semantics
+    horizon: later
+    status: planned
+    summary: Promote rivers, volcanoes, wonders, resources, areas of interest, minor tribes, and homeland/distant-land regions into neutral world facts before mapping them into target-specific exports.
+  - id: slice-6-target-adapters
+    horizon: later
+    status: planned
+    summary: Build target-specific adapters such as a Civ 7 map-script/mod pipeline from the neutral world model, with game-specific validation and packaging isolated from the core generator.

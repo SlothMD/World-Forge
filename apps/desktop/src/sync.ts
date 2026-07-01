@@ -7,6 +7,7 @@ export type LocalUserIdentity = {
   displayName: string;
   externalIds: {
     googleId: string;
+    steamId: string;
   };
   createdAt: string;
   updatedAt: string;
@@ -85,7 +86,8 @@ export function createLocalIdentity(timestamp = nowIso(), id = randomId()): Loca
     authToken: '',
     displayName: 'World Builder',
     externalIds: {
-      googleId: ''
+      googleId: '',
+      steamId: ''
     },
     createdAt: timestamp,
     updatedAt: timestamp,
@@ -101,7 +103,8 @@ export function normalizeIdentity(raw: Partial<LocalUserIdentity> = {}): LocalUs
     authToken: String(raw.authToken || ''),
     displayName: String(raw.displayName || '').trim() || 'World Builder',
     externalIds: {
-      googleId: String(raw.externalIds?.googleId || '').trim()
+      googleId: String(raw.externalIds?.googleId || '').trim(),
+      steamId: String(raw.externalIds?.steamId || '').trim()
     },
     createdAt: String(raw.createdAt || fallback.createdAt),
     updatedAt: String(raw.updatedAt || raw.createdAt || fallback.updatedAt),
@@ -231,10 +234,33 @@ export function isLoggedIn(identity: LocalUserIdentity) {
   return Boolean(identity.profileId && identity.authToken);
 }
 
+export function isLocalOnlyIdentity(identity: LocalUserIdentity) {
+  return identity.authToken.startsWith('local-');
+}
+
+export function createLocalSignedInIdentity(identity: LocalUserIdentity): LocalUserIdentity {
+  const timestamp = nowIso();
+  return normalizeIdentity({
+    ...identity,
+    authToken: identity.authToken || `local-${randomId()}`,
+    updatedAt: timestamp
+  });
+}
+
 function defaultServiceBaseUrl() {
-  const envUrl = (import.meta as { env?: { VITE_WORLD_FORGE_SERVICE_URL?: string } }).env?.VITE_WORLD_FORGE_SERVICE_URL;
+  const envUrl = configuredServiceUrl();
   if (envUrl) return envUrl.replace(/\/+$/, '');
   return '';
+}
+
+function configuredServiceUrl() {
+  return (import.meta as { env?: { VITE_WORLD_FORGE_SERVICE_URL?: string } }).env?.VITE_WORLD_FORGE_SERVICE_URL?.trim() ?? '';
+}
+
+function isUnconfiguredAppOrigin(settings: CloudSyncSettings) {
+  if (configuredServiceUrl()) return false;
+  if (typeof window === 'undefined') return false;
+  return settings.serviceBaseUrl.replace(/\/+$/, '') === window.location.origin.replace(/\/+$/, '');
 }
 
 function serviceUrl(settings: CloudSyncSettings, path: string) {
@@ -264,6 +290,7 @@ type IdentityPayload = {
     displayName: string;
     externalIds?: {
       googleId?: string;
+      steamId?: string;
     };
     createdAt: string;
     updatedAt: string;
@@ -277,7 +304,8 @@ function identityFromPayload(current: LocalUserIdentity, payload: IdentityPayloa
     authToken: payload.player.authToken || current.authToken,
     displayName: payload.player.displayName,
     externalIds: {
-      googleId: payload.player.externalIds?.googleId || current.externalIds.googleId
+      googleId: payload.player.externalIds?.googleId || current.externalIds.googleId,
+      steamId: payload.player.externalIds?.steamId || current.externalIds.steamId
     },
     createdAt: payload.player.createdAt,
     updatedAt: payload.player.updatedAt
@@ -285,41 +313,59 @@ function identityFromPayload(current: LocalUserIdentity, payload: IdentityPayloa
 }
 
 export async function syncIdentity(settings: CloudSyncSettings, identity: LocalUserIdentity): Promise<LocalUserIdentity> {
-  if (!settings.keepSynced || !settings.serviceBaseUrl) return identity;
-  if (identity.authToken) {
-    const payload = await requestJson<IdentityPayload>(serviceUrl(settings, '/api/identity/me'), {
-      method: 'PATCH',
+  if (isUnconfiguredAppOrigin(settings)) return createLocalSignedInIdentity(identity);
+  if (!settings.keepSynced || !settings.serviceBaseUrl) return createLocalSignedInIdentity(identity);
+  if (identity.authToken && !isLocalOnlyIdentity(identity)) {
+    try {
+      const payload = await requestJson<IdentityPayload>(serviceUrl(settings, '/api/identity/me'), {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders(identity)
+        },
+        body: JSON.stringify({
+          displayName: identity.displayName,
+          externalIds: {
+            googleId: identity.externalIds.googleId,
+            steamId: identity.externalIds.steamId
+          }
+        })
+      });
+      return identityFromPayload(identity, payload);
+    } catch (error) {
+      if (isUnauthorizedError(error)) return registerIdentity(settings, identity);
+      if (isMissingServiceError(error)) return createLocalSignedInIdentity(identity);
+      throw error;
+    }
+  }
+  return registerIdentity(settings, identity);
+}
+
+async function registerIdentity(settings: CloudSyncSettings, identity: LocalUserIdentity): Promise<LocalUserIdentity> {
+  try {
+    const payload = await requestJson<IdentityPayload>(serviceUrl(settings, '/api/identity/register'), {
+      method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        ...authHeaders(identity)
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
         displayName: identity.displayName,
         externalIds: {
-          googleId: identity.externalIds.googleId
+          googleId: identity.externalIds.googleId,
+          steamId: identity.externalIds.steamId
         }
       })
     });
     return identityFromPayload(identity, payload);
+  } catch (error) {
+    if (isMissingServiceError(error)) return createLocalSignedInIdentity(identity);
+    throw error;
   }
-  const payload = await requestJson<IdentityPayload>(serviceUrl(settings, '/api/identity/register'), {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      displayName: identity.displayName,
-      externalIds: {
-        googleId: identity.externalIds.googleId
-      }
-    })
-  });
-  return identityFromPayload(identity, payload);
 }
 
 export async function pushSyncEnvelope(settings: CloudSyncSettings, identity: LocalUserIdentity, envelope: SyncEnvelope): Promise<SyncEnvelope> {
-  if (!isSyncConfigured(settings) || !isLoggedIn(identity)) {
-    throw new Error('Cloud sync requires service configuration and a signed-in profile.');
+  if (!isSyncConfigured(settings) || !isLoggedIn(identity) || isLocalOnlyIdentity(identity)) {
+    throw new Error('Cloud sync requires service configuration and a service-backed signed-in profile.');
   }
   const response = await fetch(serviceUrl(settings, `/api/world-forge/user-sync/${encodeURIComponent(identity.profileId)}`), {
     method: 'PUT',
@@ -336,8 +382,8 @@ export async function pushSyncEnvelope(settings: CloudSyncSettings, identity: Lo
 }
 
 export async function pullSyncEnvelope(settings: CloudSyncSettings, identity: LocalUserIdentity): Promise<SyncEnvelope | null> {
-  if (!isSyncConfigured(settings) || !isLoggedIn(identity)) {
-    throw new Error('Cloud sync requires service configuration and a signed-in profile.');
+  if (!isSyncConfigured(settings) || !isLoggedIn(identity) || isLocalOnlyIdentity(identity)) {
+    throw new Error('Cloud sync requires service configuration and a service-backed signed-in profile.');
   }
   const response = await fetch(serviceUrl(settings, `/api/world-forge/user-sync/${encodeURIComponent(identity.profileId)}`), {
     method: 'GET',
@@ -348,4 +394,14 @@ export async function pullSyncEnvelope(settings: CloudSyncSettings, identity: Lo
     throw new Error(`Cloud pull failed (${response.status})`);
   }
   return (await response.json()) as SyncEnvelope;
+}
+
+function isMissingServiceError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /404|not found|failed to fetch|remote service is not configured/i.test(message);
+}
+
+function isUnauthorizedError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /401|unauthorized/i.test(message);
 }

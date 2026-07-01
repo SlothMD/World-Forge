@@ -3,10 +3,13 @@ import { createDefaultConfig, defaultContentLibrary } from '@world-forge/shared'
 import {
   buildSyncEnvelope,
   buildWorkspaceSettings,
+  createLocalSignedInIdentity,
   createLocalIdentity,
   isSyncConfigured,
+  isLocalOnlyIdentity,
   normalizeCloudSyncSettings,
-  normalizeIdentity
+  normalizeIdentity,
+  syncIdentity
 } from './sync';
 
 describe('sync helpers', () => {
@@ -19,7 +22,8 @@ describe('sync helpers', () => {
       authToken: '',
       displayName: 'World Builder',
       externalIds: {
-        googleId: ''
+        googleId: '',
+        steamId: ''
       },
       createdAt: '2026-06-29T12:00:00.000Z',
       updatedAt: '2026-06-29T12:00:00.000Z',
@@ -38,6 +42,21 @@ describe('sync helpers', () => {
     expect(normalizeCloudSyncSettings({}).keepSynced).toBe(true);
   });
 
+  it('can create a durable local-only login without a remote service', () => {
+    const identity = createLocalSignedInIdentity(createLocalIdentity('2026-06-29T12:00:00.000Z', 'profile-2'));
+
+    expect(identity.authToken).toMatch(/^local-/);
+    expect(isLocalOnlyIdentity(identity)).toBe(true);
+  });
+
+  it('signs in locally when no cloud service is configured', async () => {
+    const identity = await syncIdentity(normalizeCloudSyncSettings({ serviceBaseUrl: '' }), createLocalIdentity('2026-06-29T12:00:00.000Z', 'profile-2'));
+
+    expect(identity.profileId).toBe('profile-2');
+    expect(identity.authToken).toMatch(/^local-/);
+    expect(isLocalOnlyIdentity(identity)).toBe(true);
+  });
+
   it('builds a sync envelope around generation and content settings', () => {
     const identity = createLocalIdentity('2026-06-29T12:00:00.000Z', 'profile-3');
     const workspace = buildWorkspaceSettings({
@@ -47,7 +66,7 @@ describe('sync helpers', () => {
         presetId: 'custom',
         width: 42.6,
         height: 24.2,
-        enabledFeatures: ['river', 'wet']
+        enabledFeatures: ['minor-river', 'wet']
       }
     });
 
@@ -56,7 +75,7 @@ describe('sync helpers', () => {
     expect(envelope.format).toBe('world-forge-user-sync');
     expect(envelope.identity.profileId).toBe('profile-3');
     expect(envelope.workspace.tileExport.width).toBe(43);
-    expect(envelope.workspace.tileExport.enabledFeatures).toEqual(['river', 'wet']);
+    expect(envelope.workspace.tileExport.enabledFeatures).toEqual(['minor-river', 'wet']);
     expect(envelope.workspace.savedMaps).toEqual([]);
   });
 });

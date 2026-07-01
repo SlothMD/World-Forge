@@ -7,3 +7,4 @@
 PROJECT_ENV=development
 LOG_LEVEL=debug
 VITE_WORLD_FORGE_SERVICE_URL=https://world-forge-api.example.test
+VITE_GOOGLE_CLIENT_ID=replace-with-google-oauth-client-id.apps.googleusercontent.com

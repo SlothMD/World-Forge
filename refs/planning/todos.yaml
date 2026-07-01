@@ -96,6 +96,7 @@ todos:
       - Interpolation and subsystem-specific projected artifacts remain follow-up work.
       - Prioritize export/persistence quality over speed; preview may use a faster path if a measured quality fallback exists for saved/exported outputs.
       - Use user-selected visually good seeds as regression samples once identified.
+      - Seed 2883711 is a current hex/VTT export QA target for biome tile color, rivers, cliffs, and mountain overlays.
   - id: split-topology-vs-projection-tests
     status: open
     area: testing
@@ -137,6 +138,7 @@ todos:
       - Full-array percentile sorts were replaced with histogram percentiles; continent crust-field generation now skips region/lobe math outside each region influence.
       - Current major hotspots are topology.terrain.crust-fields and topology.hydrology; profile before changing hydrology algorithms.
       - Generate now runs in a Worker after startup with an estimated progress indicator so long High-resolution runs keep the UI responsive.
+      - Worker generation now emits disposable low-resolution preview snapshots after major topology phases. The UI blits the newest transferred RGBA frame while generation continues; generation must never await preview rendering.
       - Preserve visual quality of the primordial/plate-history pass while reducing repeated all-cell scans and boundary loops.
   - id: add-space-presentation
     status: open
@@ -149,7 +151,7 @@ todos:
       - Day/night cycle should affect lighting only unless/until climate simulation consumes time-of-day.
       - Add an atmospheric overlay to globe view as an early visual slice.
   - id: improve-coastline-readability
-    status: open
+    status: in_progress
     area: rendering
     priority: medium
     summary: Tone up coastline presentation so shorelines read clearly without making coastline styling authoritative world data.
@@ -160,6 +162,9 @@ todos:
       - Avoid thick outlines that visually imply political borders or plate boundaries.
       - First pass can use the suggested shelf band plus subtle landward light edge, but visual styling should become configurable with several compact options.
       - Keep UI compact: prefer one small map/view settings menu over persistent button sprawl so focus remains on the map.
+      - First pass implemented a render-only coastline overlay for biome maps: landward edge-light plus water-side shelf/darkening derived from water adjacency. This deliberately does not create authoritative coastline data and should remain distinct from future political borders.
+      - The 2D map controls now expose coastline treatment as `Bare coast`, `Toned coast`, or `Outlined coast`. `Outlined coast` is intentionally stronger for readability, while still using a fine map-style stroke rather than border-like symbology.
+      - Polar ice caps now use noisy topology thresholds rather than a hard latitude strip; hex SVG export also draws snow/ice overlay marks for icy tiles.
   - id: add-map-zoom-controls
     status: open
     area: ui
@@ -175,7 +180,7 @@ todos:
       - Keyboard controls should be mappable; first default set is W/A/S/E for pan, Q/E or equivalent for rotate/tilt where relevant, and +/- for zoom.
       - Zoom state is session-only for the first pass.
   - id: collapsible-side-panels
-    status: open
+    status: in_progress
     area: ui
     priority: medium
     summary: Make the generation controls and World info panel collapsible so the map remains the primary focus.
@@ -183,6 +188,7 @@ todos:
       - Preserve quick access to Generate, view mode, and map settings while collapsed.
       - Avoid hiding active warnings or generation progress.
       - This pairs naturally with compact view-settings menus for coastline/overlay options.
+      - Left and right panels are now collapsible. The left panel also has `Generator` and `My Worlds` tabs so local library actions stay inside the app rather than forcing file picker workflows.
   - id: add-3d-map-view
     status: deferred
     area: rendering
@@ -205,7 +211,68 @@ todos:
       - Output should preserve seed, source world id, tile profile, tile dimensions, source projection/topology metadata, and terrain/feature legend.
       - Keep this as a generic tile export/profile system; do not hardwire the core generator to Civ-specific gameplay rules.
       - First slice implemented shared hex tile-map types, a Civ 7-style profile, editable Civ 7-style size presets, SVG hex-grid export, structured tile JSON export, and UI controls for dimensions/features.
-      - Exact Civ 7 map-size dimensions and map-script APIs still need verification against shipped/modding data before treating presets as canonical.
+      - Civ 7 map-size presets were corrected to Tiny 60x38, Small 74x46, Standard 84x54, Large 96x60, and Huge 106x66.
+      - Hex tile JSON now distinguishes `minorRiverEdges` from `navigableRiverCenter`, which is important for Civ-style map export semantics.
+      - Hex SVG now includes native hover text via `<title>` with terrain, features, elevation, river, wetness, and temperature details. It also renders fallback symbology for rough/hill tiles, mountain tiles, minor river edges, navigable river centers, and steep/cliff-like edges.
+      - Hex export now carries feature detail tags for the Civ-style wet and vegetated subtypes, aquatic/floodplain, and special river/volcano/snow/ice placeholders.
+      - Named generated river paths are now routed into hex export before scalar river-strength inference, so navigable rivers can draw edge-to-center/edge paths instead of a center-only icon. Remaining hydrology QA should distinguish generated named paths from tile-resolution downsampling artifacts.
+      - Lake cells now export as Marine/Lake even when they are inland basin/lake cells rather than ocean-water cells.
+      - Ridge edges are exported as `ridgeEdges` and rendered with hachure-style edge marks; future pass should tune ridge/cliff thresholds against actual Civ 7 mod expectations.
+      - Navigable river SVG strokes are now much heavier than minor river strokes, and named river rendering stops at Lake/Marine tile edges rather than drawing through lake tiles.
+      - River endpoint issue was primarily tile/projection translation: named rivers now persist topology paths, hex export routes from topology cells, terminal coarse mouth tiles are forced to Lake/Coastal where needed, and low flat one-edge source stubs are pruned.
+      - Civ 7 map-script APIs still need verification against shipped/modding data before treating future script/export hooks as canonical.
+      - JSON and `.wforge` download reliability was improved: UI now shows export progress/status, JSON browser export is compact, and `.wforge` packages store layer data once in layer files instead of duplicating it in `project.json`.
+      - Export buttons now show independent per-button progress and completion/error states instead of a shared map overlay.
+      - Navigable river translation is now downstream/path-position based rather than scalar-strength based, which preserves upstream minor rivers and avoids source-heavy navigable rivers in older packages.
+      - Hex tile export now has a supplemental minor-drainage pass that converts strong raw topology river signal into minor river edges, then runs the existing endpoint pruning. This preserves game semantics for more river-bearing areas without treating renderer strokes as authoritative.
+      - Current QA: visible river paths are now coherent with no obvious orphans, but river presence can be too scarce and localized on a few drainage-heavy regions. Next hydrology pass should improve basin-wide distribution/density without reintroducing invalid endpoints.
+      - Current QA: volcanoes are not visibly generated/exported. Treat this as both a generation question and a display/export question; Civ-style output should model volcanoes as mountain terrain with a volcano feature indicator.
+      - YnAMP comparison target: `D:\Apps\ynamp1.1.4\ynamp\modules\maps` shows the future Civ 7 map-script exporter needs more than tile colors. Required surfaces include TerrainBuilder terrain/biome/feature/resource calls, river and cliff edge semantics, plot tags, landmass region IDs, natural wonder placement, regional resources, starts, discoveries, and builder validity checks.
+      - Directional decision: rivers must be exported as game semantics, not just visual strokes. The neutral tile model should preserve minor river edges, navigable river courses, termini, sources, and confluences so target-specific exporters can map them into game APIs.
+      - Directional decision: keep World Forge as the primary generic world generator. Civ 7 support should be a target-specific downstream pipeline/fork that consumes the completed world model and applies game-specific validation, balancing, API calls, and packaging. Civ 7 is the first such target, not the only target.
+      - Directional decision: do not care about true starts for the generic product. Civ-style true-start support can remain a mod-specific concern if needed later.
+      - Homeland/distant-land proposal: after world generation, designate a large landmass or grouped landmass as homeland, walk remaining landmasses by distance and balance to assign distant lands, then run a deep-water separation pass to ensure the divisions are meaningfully separated.
+  - id: generate-world-wonders
+    status: open
+    area: generation
+    priority: medium
+    summary: Add a generic natural-wonder analog generated from world facts rather than fixed game content.
+    notes:
+      - Civ 7 natural wonders are a future mod-pass concern, but the generic product should have its own thematically appropriate world wonders.
+      - Wonders should emerge from unusual or extreme generated features: tectonic boundaries, volcano chains, giant canyons, impact remnants, rare biomes, great reefs, massive waterfalls, unusual lakes, glacial formations, or other distinctive topology/climate events.
+      - The wonder loop should produce unique flavor per world, attach names/metadata, and feed map labels, exports, VTT points of interest, and later game-specific adapters.
+  - id: generate-regional-resources
+    status: open
+    area: generation
+    priority: medium
+    summary: Add generic regional resources from geology, ecology, climate, and hydrology, with target-specific mappings layered later.
+    notes:
+      - Civ 7 regional resource handling will be needed in the mod pass, but the generic product should first model resources as neutral world facts.
+      - Resource generation should use geological history, biome, wetness, elevation, coastal access, volcanism, river basins, forests, reefs, deserts, tundra, and other world facts.
+      - Target exporters can later map neutral resources into Civ resources, VTT labels, game-dev tile data, or other profiles.
+  - id: generate-areas-of-interest
+    status: open
+    area: generation
+    priority: medium
+    summary: Add areas of interest and minor tribes as the generic analog for discovery generation.
+    notes:
+      - This belongs with the later population loop rather than the immediate terrain/hydrology pass.
+      - Use world facts and habitability to place areas of interest, minor tribes, ruins, hazards, named regions, and other discoverable locations.
+      - A future Civ 7 adapter can translate this layer into discoveries, goody huts, independent powers, or other game-specific content where appropriate.
+  - id: add-vtt-integration
+    status: in_progress
+    area: export
+    priority: high
+    summary: Add a first-pass VTT export/integration path after the current hex tile and topology-export fundamentals are stable.
+    notes:
+      - First pass should likely target generic VTT image/grid assets rather than one platform-specific automation API.
+      - Candidate outputs: high-resolution map PNG/WebP, optional hex/square grid overlay, terrain/biome legend, JSON metadata, and VTT-ready pixel/grid dimensions.
+      - Keep Foundry, Roll20, and Owlbear Rodeo as candidate profiles; verify import expectations before hardcoding platform assumptions.
+      - This should consume projected/export facts, not renderer-only state.
+      - Other useful integrations after VTT: Tiled/LDtk for game-dev tile workflows, Godot for engine import, and GeoJSON for GIS-style tooling.
+      - First pass implemented a VTT ZIP export from the right-panel Hex Tile Export tab. Package includes a rendered PNG map, a composited map-with-grid PNG when grid is enabled, JSON metadata, and an optional transparent pointy-top hex SVG overlay.
+      - VTT hex size is user-facing in miles. Export metadata reports the resulting pixel spacing so target VTT scenes can be configured consistently.
+      - Future VTT UI should expose compact options for grid stroke thickness and opacity.
   - id: add-content-configuration
     status: in_progress
     area: configuration
@@ -218,6 +285,7 @@ todos:
       - Additional future categories worth considering: improvements, natural wonders, yields, starts/spawns, labels/naming, and regional style palettes.
       - Feature defaults need rough, volcano, and tropical added to the feature vocabulary/config.
       - Build non-terrestrial terrain sets for moons and worlds outside the habitable zone.
+      - Volcanoes should be emergent world facts from tectonics and geology, especially subduction zones, rifts, hotspots, and volcanic island arcs. Display/export indicators are downstream of that authoritative feature layer.
   - id: add-user-cloud-sync
     status: in_progress
     area: persistence
@@ -227,12 +295,14 @@ todos:
       - First slice follows the EcoMoguls local-first pattern: a local profile is created immediately, `Keep data synced` defaults on, and remote calls only happen when a service URL is configured.
       - The desktop app now persists identity, generation config, content library assets, hex export settings, and a bounded saved-map library in local browser/Tauri storage.
       - Cloud sync uses the existing studio identity service contract: `POST /api/identity/register`, `PATCH /api/identity/me`, and authenticated `GET`/`PUT /api/world-forge/user-sync/{profileId}` with `X-Player-Id` / `X-Player-Token`.
+      - Login UI is provider-driven, not manual-id driven: Google uses Google Identity Services when `VITE_GOOGLE_CLIENT_ID` is configured, and Steam should be injected by the packaged Steam launch shell.
       - Generated/opened worlds are remembered in saved maps and included in the sync envelope; `.wforge` packages remain the explicit portable/export artifact.
       - Minimum backend delta is one World Forge JSONB sync table and two authenticated routes; see refs/architecture/userSync.md.
       - Premium/account entitlements should layer on top of the profile/service boundary later, not block this local-first persistence path.
       - Conflict strategy is last-write-wins for the first backend slice.
       - `D:\Apps\Crawl-Space` was identified as the expected source for relevant deployment tooling/credentials, but the local working tree currently only contains `.git`; private values should remain in TWS References or deployment secrets, not this public repo.
-      - Do not store full generated map payloads in localStorage; High-resolution worlds exceed browser quota. Use metadata locally until IndexedDB and/or backend blob storage is added for full saved-map sync.
+      - Do not store full generated map payloads in localStorage; High-resolution worlds exceed browser quota. The first in-app `My Worlds` slice stores full saved world payloads in IndexedDB and keeps compact metadata in localStorage/workspace sync.
+      - SQLite is still a useful future Tauri-native durability layer for larger saved maps/assets and better local querying, but the current implementation uses localStorage plus IndexedDB rather than SQLite or session storage.
   - id: background-secondary-moons
     status: open
     area: performance
