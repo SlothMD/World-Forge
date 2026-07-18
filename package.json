@@ -1,0 +1,17 @@
+{
+  "name": "@tws/world-forge",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host localhost --port 5173 --strictPort",
+    "build": "tsc && vite build",
+    "preview": "vite preview --host localhost --port 5173 --strictPort",
+    "typecheck": "tsc",
+    "verify": "npm run typecheck && npm run build"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.1.5"
+  }
+}
