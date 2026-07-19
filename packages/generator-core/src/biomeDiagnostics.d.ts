@@ -1,0 +1,33 @@
+import { type Biome, type WorldProject } from '@world-forge/shared';
+export type ClimateRegime = 'maritime' | 'continental' | 'monsoonal' | 'arid_seasonal' | 'stable_tropical';
+export type BiomeDiagnostics = {
+    modelVersion: 'biome-diagnostics-v3';
+    landCellCount: number;
+    marineCellCount: number;
+    biomeSharesOfLand: Partial<Record<Biome, number>>;
+    transitionDensity: number;
+    isolatedBiomeCellShare: number;
+    tinyPatchCellShare: number;
+    annualSeasonalTemperatureSwingC: number;
+    landSeasonalTemperatureSwingC: number;
+    meanTemperatureVarianceProxyC: number;
+    p90TemperatureVarianceProxyC: number;
+    lowVarianceLandShare: number;
+    highVarianceLandShare: number;
+    biomeMeanTemperatureVarianceProxyC: Partial<Record<Biome, number>>;
+    climateRegimeByCell: ClimateRegime[];
+    climateRegimeSharesOfLand: Record<ClimateRegime, number>;
+    climateRegimeMeanTemperatureVarianceProxyC: Record<ClimateRegime, number>;
+    desertHighWetnessShare: number;
+    rainforestLowWetnessShare: number;
+    forestExtremeColdShare: number;
+    wetlandUnsupportedShare: number;
+    warmIceShare: number;
+    legacyMountainBiomeShare: number;
+    mountainousTerrainShareOfLand: number;
+    mountainousTerrainBiomeShares: Partial<Record<Biome, number>>;
+    findings: string[];
+    notes: string[];
+};
+export declare function attachBiomeDiagnostics(project: WorldProject): BiomeDiagnostics;
+//# sourceMappingURL=biomeDiagnostics.d.ts.map

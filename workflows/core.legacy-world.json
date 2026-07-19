@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "0.1.0",
+  "id": "core.legacy-world",
+  "version": "0.1.0",
+  "displayName": "Legacy World Generation",
+  "description": "Compatibility workflow that runs the existing monolithic generator as one registered stage while graph stages are introduced incrementally.",
+  "defaultFidelity": "standard",
+  "stages": [
+    {
+      "id": "legacy-world",
+      "stageId": "legacy.generate-project",
+      "implementationId": "core.legacy.generate-project",
+      "bodyKind": "system",
+      "parameters": {}
+    }
+  ]
+}

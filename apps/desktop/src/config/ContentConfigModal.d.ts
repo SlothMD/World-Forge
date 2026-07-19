@@ -1,0 +1,21 @@
+import React from 'react';
+import { type ContentCategory, type ContentLibraryConfig } from '@world-forge/shared';
+import type { CloudSyncSettings, LocalUserIdentity } from '../sync';
+export type ConfigTab = ContentCategory | 'sync';
+export declare function ContentConfigModal({ library, activeTab, onTab, onClose, onChange, identity, cloudSync, syncStatus, savedMapCount, onDisplayName, onCloudSync, onSignIn, onSignOut, onPush, onPull }: {
+    library: ContentLibraryConfig;
+    activeTab: ConfigTab;
+    onTab: (tab: ConfigTab) => void;
+    onClose: () => void;
+    onChange: (library: ContentLibraryConfig) => void;
+    identity: LocalUserIdentity;
+    cloudSync: CloudSyncSettings;
+    syncStatus: string;
+    savedMapCount: number;
+    onDisplayName: (displayName: string) => void;
+    onCloudSync: (settings: Partial<CloudSyncSettings>) => void;
+    onSignIn: () => void;
+    onSignOut: () => void;
+    onPush: () => void;
+    onPull: () => void;
+}): React.JSX.Element;

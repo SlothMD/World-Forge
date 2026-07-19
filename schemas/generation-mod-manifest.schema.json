@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://threewheeledsloth.com/schemas/generation-mod-manifest.schema.json",
+  "title": "Parchment Worlds generation mod manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "version", "permissions"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$" },
+    "version": { "type": "string", "minLength": 1 },
+    "displayName": { "type": "string" },
+    "priority": { "type": "integer", "default": 0 },
+    "dependsOn": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id"],
+        "properties": {
+          "id": { "type": "string" },
+          "version": { "type": "string" }
+        }
+      }
+    },
+    "loadsAfter": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "loadsBefore": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "permissions": { "$ref": "#/$defs/permissions" },
+    "stages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["implementationId", "stageId"],
+        "properties": {
+          "implementationId": { "type": "string" },
+          "stageId": { "type": "string" },
+          "replaces": { "type": "boolean", "default": false }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["readArtifacts", "writeArtifacts", "extendMetadata", "emitTags", "emitEvents", "filesystem", "network", "clock"],
+      "properties": {
+        "readArtifacts": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "writeArtifacts": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "extendMetadata": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "emitTags": { "type": "boolean" },
+        "emitEvents": { "type": "boolean" },
+        "filesystem": { "type": "boolean" },
+        "network": { "type": "boolean" },
+        "clock": { "type": "boolean" }
+      }
+    }
+  }
+}

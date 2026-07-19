@@ -1,17 +1,43 @@
 {
   "name": "@tws/world-forge",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "private": false,
   "type": "module",
   "scripts": {
-    "dev": "vite --host localhost --port 5173 --strictPort",
-    "build": "tsc && vite build",
-    "preview": "vite preview --host localhost --port 5173 --strictPort",
-    "typecheck": "tsc",
-    "verify": "npm run typecheck && npm run build"
+    "dev": "vite --host localhost",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "benchmark:generation": "tsx --tsconfig tsconfig.scripts.json scripts/benchmark-generation.ts",
+    "triage:surface": "tsx --tsconfig tsconfig.scripts.json scripts/run-surface-quality-triage.ts",
+    "validate:presets": "tsx --tsconfig tsconfig.scripts.json scripts/run-preset-validation.ts",
+    "workflow:legacy": "tsx --tsconfig tsconfig.scripts.json scripts/run-generation-workflow.ts",
+    "test": "vitest run",
+    "typecheck": "tsc -b",
+    "validate": "npm run typecheck && npm test",
+    "verify": "npm run validate && npm run build"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.1.2",
+    "firebase": "^12.15.0",
+    "jszip": "^3.10.1",
+    "lucide-react": "^0.561.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "three": "^0.185.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.0"
   },
   "devDependencies": {
-    "typescript": "^7.0.2",
-    "vite": "^8.1.5"
+    "@types/node": "^24.10.4",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "@types/three": "^0.185.1",
+    "playwright": "^1.61.1",
+    "tsx": "^4.22.4",
+    "vitest": "^4.0.15"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1",
+    "uuid": "^11.1.1"
   }
 }

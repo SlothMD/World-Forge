@@ -1,0 +1,63 @@
+import { type WorldProject } from '@world-forge/shared';
+import { type DeepTimeProgress, type DeepTimeProject } from './deepTimePipeline';
+export type MutationPopulationSummary = {
+    amount: number;
+    operations: number;
+    affectedCells: number;
+    amountPerAffectedCell: number;
+    amountPerOperation: number;
+    operationsPerAffectedCell: number;
+    affectedBaselineRelief: number;
+    amountPerBaselineRelief: number;
+    accumulatedOpportunity: number;
+    amountPerAccumulatedOpportunity: number;
+};
+export type MutationProcessSummary = {
+    totalAmount: number;
+    operations: number;
+    affectedCells: number;
+    accumulatedOpportunity: number;
+    amountPerOperation: number;
+    amountPerAccumulatedOpportunity: number;
+    craton: MutationPopulationSummary;
+    nonCraton: MutationPopulationSummary;
+    comparisonAvailable: boolean;
+};
+export type SedimentDepositionDiagnostics = {
+    modelVersion: 'deep-time-sediment-budget-v2';
+    erosionRemovedVolume: number;
+    transportableSedimentVolume: number;
+    nonTransportedVolume: number;
+    depositedVolume: number;
+    pendingVolume: number;
+    deepOceanLossVolume: number;
+    budgetError: number;
+    basinAssignedVolume: number;
+    riverAssignedVolume: number;
+    coastalAssignedVolume: number;
+    shelfAssignedVolume: number;
+    deepOceanAssignedVolume: number;
+    basinDepositedVolume: number;
+    riverDepositedVolume: number;
+    coastalDepositedVolume: number;
+    shelfDepositedVolume: number;
+    deepOceanDepositedVolume: number;
+    depositionOperations: number;
+    depositedCells: number;
+};
+export type DeepTimeMutationLedger = {
+    modelVersion: 'deep-time-mutation-ledger-v4';
+    tectonicGain: MutationProcessSummary;
+    impactGain: MutationProcessSummary;
+    impactLoss: MutationProcessSummary;
+    weatheringLoss: MutationProcessSummary;
+    glacialLoss: MutationProcessSummary;
+    coastalLoss: MutationProcessSummary;
+    sedimentGain: MutationProcessSummary;
+    sediment: SedimentDepositionDiagnostics;
+    unclassifiedElevationMutationAmount: number;
+    unclassifiedElevationMutationOperations: number;
+    notes: string[];
+};
+export declare function applyDeepTimeFoundationWithMutationLedger(project: WorldProject, onProgress?: (progress: DeepTimeProgress) => void): DeepTimeProject;
+//# sourceMappingURL=deepTimeMutationLedger.d.ts.map

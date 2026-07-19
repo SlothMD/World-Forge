@@ -1,0 +1,63 @@
+import React from 'react';
+import { HexTileFeature, WorldProject } from '@world-forge/shared';
+type RightPanelTab = 'world' | 'hex' | 'diagnostics';
+type ResolutionOption = {
+    label: string;
+    width: number;
+    height: number;
+};
+type ExportTaskState = {
+    status: 'idle' | 'running' | 'complete' | 'error';
+    progress: number;
+    message: string;
+};
+type RightPanelProps = {
+    collapsed: boolean;
+    activeTab: RightPanelTab;
+    feedbackStatus: string;
+    inspectorContent: React.ReactNode;
+    diagnosticsContent: React.ReactNode;
+    project: WorldProject | null;
+    exportResolution: ResolutionOption;
+    tilePresetId: string;
+    tileWidth: number;
+    tileHeight: number;
+    tileFeatures: HexTileFeature[];
+    tileFeatureLabels: Record<HexTileFeature, string>;
+    tileHexScaleMiles: number | null;
+    vttResolution: ResolutionOption;
+    resolutionOptions: ResolutionOption[];
+    vttGridEnabled: boolean;
+    vttHexSizeMilesInput: string;
+    vttHexMetrics: {
+        columns: number;
+        rows: number;
+    } | null;
+    hexSvgTask: ExportTaskState;
+    tileJsonTask: ExportTaskState;
+    vttTask: ExportTaskState;
+    onCollapsedChange: (collapsed: boolean) => void;
+    onTabChange: (tab: RightPanelTab) => void;
+    onFeedback: () => void;
+    onTilePresetChange: (presetId: string) => void;
+    onTileWidthChange: (width: number) => void;
+    onTileHeightChange: (height: number) => void;
+    onTileFeatureChange: (feature: HexTileFeature, enabled: boolean) => void;
+    onVttResolutionChange: (resolution: ResolutionOption) => void;
+    onVttGridEnabledChange: (enabled: boolean) => void;
+    onVttHexSizeInputChange: (value: string) => void;
+    onCommitVttHexSize: () => void;
+    renderExportButton: (props: {
+        icon: React.ReactNode;
+        label: string;
+        task: ExportTaskState;
+        disabled: boolean;
+        title: string;
+        onClick: () => void;
+    }) => React.ReactNode;
+    onDownloadHexGridSvg: () => void;
+    onDownloadHexTileJson: () => void;
+    onDownloadVttPackage: () => void;
+};
+export declare function RightPanel(props: RightPanelProps): React.JSX.Element;
+export {};

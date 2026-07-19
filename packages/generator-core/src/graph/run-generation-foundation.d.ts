@@ -1,0 +1,53 @@
+import { SelectedValues } from '@world-forge/shared';
+import { SeededRandom } from '../random';
+import type { GenerationDiagnostics } from '@world-forge/shared';
+import type { GenerationGraphNodeRunEvent } from './types';
+import { CrustFieldsOutput } from './nodes/crust-fields-node';
+import { PlateConstructionOutput } from './nodes/plate-construction-node';
+import { PrimordialTerrainOutput } from './nodes/primordial-terrain-node';
+import { TopologyConstructionInput, TopologyConstructionOutput } from './nodes/topology-construction-node';
+import { TopologyElevationOutput } from './nodes/topology-elevation-node';
+import { TerrainFinalizationInput, TerrainFinalizationOutput } from './nodes/terrain-finalization-node';
+import { WaterGeologyInput, WaterGeologyOutput } from './nodes/water-geology-node';
+import { ClimateGlaciationInput, ClimateGlaciationOutput } from './nodes/climate-glaciation-node';
+import { HydrologyBiomesInput, HydrologyBiomesOutput } from './nodes/hydrology-biomes-node';
+import { ProjectionAssemblyInput, ProjectionAssemblyOutput } from './nodes/projection-assembly-node';
+export type GenerationFoundationInput = {
+    topology: TopologyConstructionInput;
+    values: SelectedValues;
+    rng: SeededRandom;
+    terrainFinalization?: TerrainFinalizationInput;
+    waterGeology?: WaterGeologyInput;
+    climateGlaciation?: ClimateGlaciationInput;
+    hydrologyBiomes?: HydrologyBiomesInput;
+    projectionAssembly?: ProjectionAssemblyInput;
+    onNodeEvent?: (event: GenerationGraphNodeRunEvent) => void;
+};
+export type GenerationFoundationOutput = {
+    topology: TopologyConstructionOutput;
+    primordial: PrimordialTerrainOutput;
+    plates: PlateConstructionOutput;
+    crust: CrustFieldsOutput;
+    elevation: TopologyElevationOutput;
+    terrain?: TerrainFinalizationOutput;
+    waterGeology?: WaterGeologyOutput;
+    climateGlaciation?: ClimateGlaciationOutput;
+    hydrologyBiomes?: HydrologyBiomesOutput;
+    projectionAssembly?: ProjectionAssemblyOutput;
+    timings: {
+        topologyMs: number;
+        primordialMs: number;
+        plateConstructionMs: number;
+        terrainPhasesMs: number;
+        crustFieldsMs: number;
+        topologyElevationMs: number;
+        terrainFinalizationMs?: number;
+        waterGeologyMs?: number;
+        climateGlaciationMs?: number;
+        hydrologyBiomesMs?: number;
+        projectionAssemblyMs?: number;
+    };
+    graph: NonNullable<GenerationDiagnostics['graph']>;
+};
+export declare function runGenerationFoundation(rootSeed: string, input: GenerationFoundationInput): GenerationFoundationOutput;
+//# sourceMappingURL=run-generation-foundation.d.ts.map

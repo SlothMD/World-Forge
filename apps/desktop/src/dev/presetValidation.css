@@ -1,0 +1,36 @@
+.preset-validation-panel { position: absolute; z-index: 40; top: 66px; left: 18px; right: 18px; max-height: calc(100% - 84px); overflow: auto; padding: 16px; border: 1px solid rgba(74,55,29,.24); border-radius: 10px; background: rgba(255,252,244,.98); box-shadow: 0 16px 42px rgba(45,34,19,.24); }
+.preset-validation-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.preset-validation-header > div { display: flex; align-items: center; gap: 8px; }
+.preset-validation-header h3 { margin: 0; }
+.preset-validation-panel > p { margin: 8px 0 14px; color: #746a5d; }
+.preset-validation-controls { display: flex; align-items: end; gap: 10px; flex-wrap: wrap; }
+.preset-validation-controls label { display: grid; gap: 4px; min-width: 230px; color: #655b4e; font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; }
+.preset-validation-controls button, .preset-validation-downloads button { display: inline-flex; align-items: center; gap: 6px; }
+.preset-validation-progress { display: grid; grid-template-columns: minmax(180px,1fr) auto; gap: 6px 10px; margin-top: 14px; }
+.preset-validation-progress progress { width: 100%; }
+.preset-validation-progress small { grid-column: 1 / -1; color: #746a5d; overflow-wrap: anywhere; }
+.preset-validation-report { display: grid; gap: 12px; margin-top: 16px; }
+.preset-validation-summary { display: flex; gap: 12px; flex-wrap: wrap; padding: 10px; border-radius: 8px; background: rgba(80,172,180,.1); }
+.preset-validation-downloads { display: flex; gap: 8px; }
+.preset-validation-findings { display: grid; gap: 7px; }
+.preset-validation-finding { display: grid; gap: 3px; padding: 9px 10px; border-left: 4px solid #4d9a66; background: rgba(255,255,255,.44); }
+.preset-validation-finding.warning { border-left-color: #c28b30; }
+.preset-validation-finding.fail, .preset-validation-finding.error { border-left-color: #b84e45; }
+.preset-validation-finding span { color: #6f6659; font-size: .78rem; }
+
+.dev-instrument {
+  align-items: center;
+  display: inline-flex;
+  justify-content: center;
+  min-height: 30px;
+  min-width: 30px;
+  padding: 5px;
+}
+.dev-instrument svg { stroke-width: 1.8; }
+.dev-instrument-test { color: #59699a; }
+.dev-instrument-test:hover,
+.dev-instrument-test[aria-pressed="true"] {
+  background: linear-gradient(#f1effa, #d9d8eb);
+  border-color: #8d8ab5;
+  color: #465885;
+}

@@ -1,0 +1,51 @@
+import { type WorldProject } from '@world-forge/shared';
+export type VolcanismSnapshot = {
+    mean: number;
+    activeShare: number;
+    boundaryMean: number;
+    interiorMean: number;
+    boundaryToInteriorRatio: number;
+};
+export type HistoricalProcessBaseline = {
+    volcanism: VolcanismSnapshot;
+};
+export type DeepTimeHistoricalProcessDiagnostics = {
+    modelVersion: 'deep-time-historical-processes-v3';
+    systemAgeGy: number;
+    ageBand: 'young' | 'mature' | 'old';
+    epochCount: number;
+    earlyImpactIntensityShare: number;
+    lateImpactIntensityShare: number;
+    impactGainVolume: number;
+    impactLossVolume: number;
+    impactNetExcavationVolume: number;
+    impactEjectaReturnRatio: number;
+    impactOperationsPerGy: number;
+    impactLossPerGy: number;
+    impactLifetimeTargetOperations: number;
+    impactLifetimeOperationRatio: number;
+    tectonicGainPerGy: number;
+    weatheringLossPerGy: number;
+    glacialLossPerGy: number;
+    coastalLossPerGy: number;
+    geothermalFlux: number;
+    meanPlateSpeed: number;
+    volcanismBoundaryRetentionFactor: number;
+    volcanismInteriorRetentionFactor: number;
+    volcanismBoundaryFloor: number;
+    volcanismInteriorFloor: number;
+    volcanismChangedCells: number;
+    volcanismIncreasedCells: number;
+    volcanismDecreasedCells: number;
+    volcanismUnchangedCells: number;
+    preAgingVolcanism: VolcanismSnapshot;
+    finalVolcanism: VolcanismSnapshot;
+    volcanismMeanDelta: number;
+    volcanismActiveShareDelta: number;
+    volcanismBoundaryMeanDelta: number;
+    volcanismInteriorMeanDelta: number;
+    notes: string[];
+};
+export declare function captureHistoricalProcessBaseline(project: WorldProject): HistoricalProcessBaseline;
+export declare function attachDeepTimeHistoricalProcessDiagnostics(project: WorldProject, baseline: HistoricalProcessBaseline): DeepTimeHistoricalProcessDiagnostics;
+//# sourceMappingURL=deepTimeHistoricalProcesses.d.ts.map

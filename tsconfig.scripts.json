@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "target": "ES2022",
+    "paths": {
+      "@world-forge/shared": ["packages/shared/src/index.ts"],
+      "@world-forge/generator-core": ["packages/generator-core/src/index.ts"],
+      "@world-forge/generation-runtime": ["packages/generation-runtime/src/index.ts"],
+      "@world-forge/renderer": ["packages/renderer/src/index.ts"],
+      "@world-forge/exporters": ["packages/exporters/src/index.ts"]
+    }
+  }
+}

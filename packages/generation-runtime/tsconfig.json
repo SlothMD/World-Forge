@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "emitDeclarationOnly": true,
+    "strict": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "target": "ES2022",
+    "skipLibCheck": true,
+    "baseUrl": "../..",
+    "paths": {
+      "@world-forge/shared": ["packages/shared/src/index.ts"],
+      "@world-forge/shared/*": ["packages/shared/src/*"],
+      "@world-forge/generator-core": ["packages/generator-core/src/index.ts"],
+      "@world-forge/generator-core/*": ["packages/generator-core/src/*"]
+    }
+  },
+  "references": [
+    { "path": "../shared" },
+    { "path": "../generator-core" }
+  ],
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts"]
+}

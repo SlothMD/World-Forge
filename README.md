@@ -1,27 +1,35 @@
 # World Forge
 
-World Forge is the public procedural world-generation tool for Parchment Worlds.
+World Forge is an open procedural world-generation project for tabletop RPG settings, fiction, and simulation. It generates science-informed star systems and planets, then turns the primary world into an explorable globe with terrain, climate, biomes, rivers, and exportable world data.
 
-This repository is intentionally public and must not contain product secrets, private project data, deployment credentials, private roadmap material, or user-specific validation records.
+## Recent development
 
-## Local Development
+- Expanded procedural solar-system and primary-world generation.
+- Added interactive 3D globe rendering and surface inspection tools.
+- Added saved-world workflows and PNG, JSON, binary, and `.wforge` exports.
+- Added generation diagnostics and performance benchmarking.
+- Continued work on graph-based terrain, hydrology, biome, and surface-classification systems.
+
+World Forge is under active development. Generated results, file formats, and controls may change between preview builds.
+
+## Install and run
+
+### Manual start
 
 ```powershell
 npm install
 npm run dev
 ```
 
-The local app runs at `http://localhost:5173/`. Parchment Worlds embeds it from the sibling private app during local development.
+The development server opens on `http://localhost:5173/`. The private Parchment Worlds shell can also launch and embed this sibling checkout.
 
-## Hosted Integration
+### Validate and build
 
-Parchment Worlds builds this app and stages the static output under `/apps/world-forge/` during combined deployments.
+```powershell
+npm run validate
+npm run build
+```
 
-The first integration contract passes non-secret project context through URL parameters:
+## Roadmap
 
-- `contract`
-- `projectId`
-- `projectName`
-- `revision`
-
-Later slices will replace the placeholder app shell with the portable generation UI and a stricter message-based contract.
+Near-term work focuses on improving physical plausibility, graph-based surface generation, biome and ocean classification, editing tools, diagnostics, and export reliability. The reusable generation engine and browser tool remain public; private product shell, account, roadmap, and deployment material stay in Parchment Worlds and Portfolio.

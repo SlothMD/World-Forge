@@ -1,0 +1,1 @@
+{"version":3,"file":"loaders.d.ts","sourceRoot":"","sources":["loaders.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,qBAAqB,EAAE,MAAM,QAAQ,CAAC;AACpD,OAAO,KAAK,EAAE,kBAAkB,EAAE,MAAM,YAAY,CAAC;AAerD,wBAAgB,iBAAiB,CAAC,MAAM,EAAE,MAAM,GAAG,kBAAkB,CAKpE;AAED,wBAAgB,oBAAoB,CAAC,MAAM,EAAE,MAAM,GAAG,qBAAqB,CAM1E"}
