@@ -1,0 +1,74 @@
+name: Deploy World Forge
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout World Forge
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build World Forge
+        run: |
+          npm ci
+          npm run verify
+
+      - name: Select FTP credentials
+        shell: bash
+        env:
+          PW_FTP_USERNAME: ${{ secrets.PW_FTP_USERNAME }}
+          PW_FTP_PASSWORD: ${{ secrets.PW_FTP_PASSWORD }}
+          PW_FTP_USERNAME_QA: ${{ secrets.PW_FTP_USERNAME_QA }}
+          PW_FTP_PASSWORD_QA: ${{ secrets.PW_FTP_PASSWORD_QA }}
+          PW_FTP_USERNAME_DEV: ${{ secrets.PW_FTP_USERNAME_DEV }}
+          PW_FTP_PASSWORD_DEV: ${{ secrets.PW_FTP_PASSWORD_DEV }}
+        run: |
+          set -euo pipefail
+          branch="${GITHUB_REF_NAME}"
+          case "$branch" in
+            dev)
+              username="$PW_FTP_USERNAME_DEV"
+              password="$PW_FTP_PASSWORD_DEV"
+              ;;
+            qa)
+              username="$PW_FTP_USERNAME_QA"
+              password="$PW_FTP_PASSWORD_QA"
+              ;;
+            main)
+              username="$PW_FTP_USERNAME"
+              password="$PW_FTP_PASSWORD"
+              ;;
+            *)
+              echo "Unsupported deployment branch: $branch"
+              exit 1
+              ;;
+          esac
+
+          if [ -z "$username" ] || [ -z "$password" ]; then
+            echo "FTP credentials are missing for $branch"
+            exit 1
+          fi
+
+          {
+            echo "FTP_USERNAME=$username"
+            echo "FTP_PASSWORD=$password"
+          } >> "$GITHUB_ENV"
+
+      - name: Deploy World Forge app
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.6
+        with:
+          server: ${{ secrets.PW_FTP_HOST }}
+          username: ${{ env.FTP_USERNAME }}
+          password: ${{ env.FTP_PASSWORD }}
+          local-dir: ./dist/
+          server-dir: ${{ secrets.PW_REMOTE_PATH }}/apps/world-forge/
