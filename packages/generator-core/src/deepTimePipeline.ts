@@ -13,6 +13,12 @@ import {
 } from '@world-forge/shared';
 import { generateProject, type GenerateProjectOptions } from './index';
 import { applyBasinAwareCirculation } from './basinCirculation';
+import {
+  buildRotationBetweenUnitVectors,
+  buildTangentSphericalRotation,
+  rotateUnitVector,
+  unitVectorToLonLat
+} from './fragmentSphericalTransform';
 
 export type StellarActivityClass = 'quiet' | 'moderate' | 'active' | 'flare-active';
 
@@ -897,10 +903,11 @@ function buildStoredFragmentHistory(
   };
 }
 
-function findUnclaimedTransformTarget(
+function findBestUnclaimedTransformTarget(
   topology: CubedSphereTopology,
   initialTarget: number,
   targetClaims: Uint8Array,
+  targetVector: { x: number; y: number; z: number },
   maxDepth = 3
 ): number {
   if (!targetClaims[initialTarget]) return initialTarget;
@@ -908,21 +915,32 @@ function findUnclaimedTransformTarget(
   const queueDepths = [0];
   const visited = new Set<number>([initialTarget]);
   let head = 0;
+  let bestCell = -1;
+  let bestAlignment = Number.NEGATIVE_INFINITY;
   while (head < queueCells.length) {
     const cell = queueCells[head];
     const depth = queueDepths[head];
     head += 1;
+    if (!targetClaims[cell]) {
+      const alignment =
+        topology.positions[cell * 3] * targetVector.x +
+        topology.positions[cell * 3 + 1] * targetVector.y +
+        topology.positions[cell * 3 + 2] * targetVector.z;
+      if (alignment > bestAlignment + 1e-12 || (Math.abs(alignment - bestAlignment) <= 1e-12 && (bestCell < 0 || cell < bestCell))) {
+        bestCell = cell;
+        bestAlignment = alignment;
+      }
+    }
     if (depth >= maxDepth) continue;
     for (let direction = 0; direction < 4; direction += 1) {
       const neighbor = topology.neighbors[cell * 4 + direction];
       if (neighbor < 0 || visited.has(neighbor)) continue;
-      if (!targetClaims[neighbor]) return neighbor;
       visited.add(neighbor);
       queueCells.push(neighbor);
       queueDepths.push(depth + 1);
     }
   }
-  return -1;
+  return bestCell;
 }
 
 function applyAuthoritativeFragmentTransforms(
@@ -968,20 +986,36 @@ function applyAuthoritativeFragmentTransforms(
       : 0;
     const motionX = speed > 0.0001 ? plateLookup.motionX[seed.plateId] / speed : 0;
     const motionY = speed > 0.0001 ? plateLookup.motionY[seed.plateId] / speed : 0;
-    const centroidLatitude = Math.asin(clamp(seed.y, -1, 1));
-    const longitudeDelta = motionX * displacement / Math.max(0.22, Math.cos(centroidLatitude));
-    const latitudeDelta = motionY * displacement;
-    if (displacement > 0) movingFragmentCount += 1;
-    displacementTotal += displacement;
-    maxDisplacement = Math.max(maxDisplacement, displacement);
-    for (const sourceCell of seed.cells) {
-      const targetLongitude = wrappedAngle(topology.longitudes[sourceCell] + longitudeDelta);
-      const targetLatitude = clamp(topology.latitudes[sourceCell] + latitudeDelta, -Math.PI / 2 + 0.000001, Math.PI / 2 - 0.000001);
-      const desiredTarget = cubedSphereCellForLonLat(topology, targetLongitude, targetLatitude);
+    const rotation = buildTangentSphericalRotation(
+    { x: seed.x, y: seed.y, z: seed.z },
+    motionX,
+    motionY,
+    displacement
+  );
+  if (displacement > 0) movingFragmentCount += 1;
+  displacementTotal += displacement;
+  maxDisplacement = Math.max(maxDisplacement, displacement);
+  for (const sourceCell of seed.cells) {
+    const rotatedTarget = rotateUnitVector(
+      {
+        x: topology.positions[sourceCell * 3],
+        y: topology.positions[sourceCell * 3 + 1],
+        z: topology.positions[sourceCell * 3 + 2]
+      },
+      rotation
+    );
+    const targetCoordinates = unitVectorToLonLat(rotatedTarget);
+    const desiredTarget = cubedSphereCellForLonLat(topology, targetCoordinates.longitude, targetCoordinates.latitude);
       let targetCell = desiredTarget;
       if (targetClaims[desiredTarget]) {
         collisionCells[desiredTarget] = 1;
-        const spillTarget = findUnclaimedTransformTarget(topology, desiredTarget, targetClaims, 3);
+        const spillTarget = findBestUnclaimedTransformTarget(
+        topology,
+        desiredTarget,
+        targetClaims,
+        rotatedTarget,
+        3
+      );
         if (spillTarget >= 0) {
           targetCell = spillTarget;
           collisionResolvedCells[targetCell] = 1;
@@ -1016,8 +1050,8 @@ function applyAuthoritativeFragmentTransforms(
   const denominator = Math.max(1, topology.cellCount);
   const retainedCellRatio = targetCellCount / Math.max(1, sourceCellCount);
   const notes = [
-    'All captured continental fragments are placed, including near-stationary fragments which use identity transforms.',
-    'Overlapping target claims search up to three topology steps for an unclaimed spill cell before merging relief at the collision target.',
+    'All captured continental fragments use one rigid three-dimensional spherical rotation, including near-stationary fragments which use identity transforms.',
+    'Overlapping target claims search the local topology neighborhood and choose the unclaimed cell with the best angular fit before merging relief at the collision target.',
     'Vacated source cells become young oceanic crust before erosion, impacts, glaciation, climate, and hydrology run.'
   ];
   if (retainedCellRatio < 0.97) notes.push('Fragment placement retained less than 97 percent of source cells; inspect merged collision pressure.');
@@ -1061,14 +1095,23 @@ function previewDirectFragmentTransformRaster(
     if (!seed) continue;
     const first = record.keyframes[0];
     const last = record.keyframes[record.keyframes.length - 1];
-    const longitudeDelta = wrappedAngle(last.longitudeRadians - first.longitudeRadians);
-    const latitudeDelta = last.latitudeRadians - first.latitudeRadians;
+    const rotation = buildRotationBetweenUnitVectors(
+    vectorFromLonLat(first.longitudeRadians, first.latitudeRadians),
+    vectorFromLonLat(last.longitudeRadians, last.latitudeRadians)
+  );
     resolvedRecords += 1;
     for (const sourceCell of seed.cells) {
       sourceCells[sourceCell] = 1;
-      const targetLongitude = wrappedAngle(topology.longitudes[sourceCell] + longitudeDelta);
-      const targetLatitude = clamp(topology.latitudes[sourceCell] + latitudeDelta, -Math.PI / 2 + 0.000001, Math.PI / 2 - 0.000001);
-      const targetCell = cubedSphereCellForLonLat(topology, targetLongitude, targetLatitude);
+      const rotatedTarget = rotateUnitVector(
+        {
+          x: topology.positions[sourceCell * 3],
+          y: topology.positions[sourceCell * 3 + 1],
+          z: topology.positions[sourceCell * 3 + 2]
+        },
+        rotation
+      );
+      const targetCoordinates = unitVectorToLonLat(rotatedTarget);
+      const targetCell = cubedSphereCellForLonLat(topology, targetCoordinates.longitude, targetCoordinates.latitude);
       targetClaims[targetCell] = Math.min(65535, targetClaims[targetCell] + 1);
     }
   }
