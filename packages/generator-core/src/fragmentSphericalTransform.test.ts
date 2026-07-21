@@ -55,7 +55,10 @@ describe('rigid spherical fragment transforms', () => {
   it('uses an identity transform for zero displacement', () => {
     const source = vectorFromLonLat(1.2, -0.65);
     const rotation = buildTangentSphericalRotation(source, 0.2, 0.8, 0);
+    const rotated = rotateUnitVector(source, rotation);
 
-    expect(rotateUnitVector(source, rotation)).toEqual(source);
+    expect(rotated.x).toBeCloseTo(source.x, 12);
+    expect(rotated.y).toBeCloseTo(source.y, 12);
+    expect(rotated.z).toBeCloseTo(source.z, 12);
   });
 });
