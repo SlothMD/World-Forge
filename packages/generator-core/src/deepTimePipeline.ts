@@ -963,7 +963,6 @@ function applyAuthoritativeFragmentTransforms(
   const collisionCells = new Uint8Array(topology.cellCount);
   const collisionResolvedCells = new Uint8Array(topology.cellCount);
   const mergedCollisionCells = new Uint8Array(topology.cellCount);
-  const oceanPlateId = world.plates.find((plate) => plate.kind === 'oceanic')?.id ?? originalPlates[0] ?? 0;
   const sortedSeeds = [...lineageSeeds].sort((left, right) => right.cellCount - left.cellCount || left.id - right.id);
   let targetCellCount = 0;
   let movingFragmentCount = 0;
@@ -973,7 +972,6 @@ function applyAuthoritativeFragmentTransforms(
   for (const seed of sortedSeeds) {
     for (const sourceCell of seed.cells) {
       sourceCells[sourceCell] = 1;
-      plates[sourceCell] = oceanPlateId;
       elevation[sourceCell] = Math.min(originalElevation[sourceCell], world.seaLevel - 0.07);
       volcanism[sourceCell] = Math.max(originalVolcanism[sourceCell] * 0.35, world.planetaryDynamics.geothermalFlux * 0.12);
     }
@@ -1031,7 +1029,6 @@ function applyAuthoritativeFragmentTransforms(
       targetClaims[targetCell] = 1;
       targetCells[targetCell] = 1;
       targetCellCount += 1;
-      plates[targetCell] = originalPlates[sourceCell];
       elevation[targetCell] = originalElevation[sourceCell];
       volcanism[targetCell] = originalVolcanism[sourceCell];
     }
@@ -1051,8 +1048,9 @@ function applyAuthoritativeFragmentTransforms(
   const retainedCellRatio = targetCellCount / Math.max(1, sourceCellCount);
   const notes = [
     'All captured continental fragments use one rigid three-dimensional spherical rotation, including near-stationary fragments which use identity transforms.',
+    'Fragment placement carries elevation and volcanism, but plate ownership remains the coherent authoritative topology field to avoid raster-fragment plate ribbons.',
     'Overlapping target claims search the local topology neighborhood and choose the unclaimed cell with the best angular fit before merging relief at the collision target.',
-    'Vacated source cells become young oceanic crust before erosion, impacts, glaciation, climate, and hydrology run.'
+    'Vacated source cells receive young-oceanic-crust elevation and volcanism treatment before erosion, impacts, glaciation, climate, and hydrology run.'
   ];
   if (retainedCellRatio < 0.97) notes.push('Fragment placement retained less than 97 percent of source cells; inspect merged collision pressure.');
 

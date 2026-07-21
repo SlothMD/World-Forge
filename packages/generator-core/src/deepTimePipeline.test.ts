@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createDefaultConfig } from './index';
+import { buildCubedSphereTopology, type CubedSphereTopology } from '@world-forge/shared';
+import { createDefaultConfig, generateProject } from './index';
 import { generateProjectWithDeepTime } from './deepTimePipeline';
 
 function testConfig(seed: string, overrides: Record<string, number> = {}) {
@@ -58,6 +59,17 @@ describe('deep-time generator-core pipeline', () => {
     expect(world.rivers.every((river) => river.path.length > 1)).toBe(true);
   });
 
+  it('does not fragment authoritative plate ownership during deep-time placement', () => {
+    const config = testConfig('deep-time-plate-cohesion');
+    const initial = generateProject(config);
+    const final = generateProjectWithDeepTime(config);
+    const topology = buildCubedSphereTopology(final.primaryWorld.topology.resolution);
+    const initialComponents = plateComponentCount(topology, initial.primaryWorld.topologyLayers.plates);
+    const finalComponents = plateComponentCount(topology, final.primaryWorld.topologyLayers.plates);
+
+    expect(finalComponents).toBeLessThanOrEqual(initialComponents + final.primaryWorld.plates.length);
+  });
+
   it('keeps persistent polar ice on a cold controlled world', () => {
     const project = generateProjectWithDeepTime(testConfig('deep-time-polar-ice', {
       oceanPercentage: 52,
@@ -70,3 +82,28 @@ describe('deep-time generator-core pipeline', () => {
     expect(iceCells).toBeGreaterThan(0);
   });
 });
+
+function plateComponentCount(topology: CubedSphereTopology, plates: Uint16Array): number {
+  const visited = new Uint8Array(plates.length);
+  const queue = new Int32Array(plates.length);
+  let components = 0;
+  for (let start = 0; start < plates.length; start += 1) {
+    if (visited[start]) continue;
+    const plateId = plates[start];
+    let head = 0;
+    let tail = 0;
+    visited[start] = 1;
+    queue[tail++] = start;
+    while (head < tail) {
+      const cell = queue[head++];
+      for (let direction = 0; direction < 4; direction += 1) {
+        const neighbor = topology.neighbors[cell * 4 + direction];
+        if (neighbor < 0 || visited[neighbor] || plates[neighbor] !== plateId) continue;
+        visited[neighbor] = 1;
+        queue[tail++] = neighbor;
+      }
+    }
+    components += 1;
+  }
+  return components;
+}
