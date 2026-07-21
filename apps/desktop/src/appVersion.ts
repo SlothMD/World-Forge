@@ -1,4 +1,4 @@
-export const APP_VERSION = '0.3.11';
+export const APP_VERSION = '0.3.12';
 export const APP_SOURCE_COMMIT = ((import.meta as { env?: { VITE_WORLD_FORGE_COMMIT_SHA?: string } }).env?.VITE_WORLD_FORGE_COMMIT_SHA?.trim() || 'dev-local');
 
 export function visibleAppVersion(version = APP_VERSION): string {

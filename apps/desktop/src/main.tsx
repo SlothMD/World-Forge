@@ -54,7 +54,7 @@ import { useGenerationWorkflow } from './generation/useGenerationWorkflow';
 import { GlobeViewer, type GlobeDebugMode } from './globe/GlobeViewer';
 import { useCloudWorkspaceSync } from './workspace/useCloudWorkspaceSync';
 import { useWorkspacePersistence } from './workspace/useWorkspacePersistence';
-import { APP_VERSION, APP_VISIBLE_VERSION } from './appVersion';
+import { APP_SOURCE_COMMIT, APP_VERSION, APP_VISIBLE_VERSION } from './appVersion';
 import { ReleaseNotesModal } from './release/ReleaseNotesModal';
 import { applyParchmentShellEmbedFlag } from './shell/embedMode';
 import './styles.css';
@@ -91,6 +91,7 @@ const rangeLabels: Record<RangeKey, string> = {
 };
 
 const defaultSeed = '1001001';
+const WORLD_FORGE_BUILD_MESSAGE = 'parchment-worlds:world-forge-build';
 
 const resolutionOptions = [
   { label: 'Fast 256 x 128', width: 256, height: 128 },
@@ -283,6 +284,18 @@ function configForFreshGeneration(config: GenerationConfig): GenerationConfig {
 }
 
 function App() {
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('embed') !== 'shell' || window.parent === window) return;
+    window.parent.postMessage({
+      type: WORLD_FORGE_BUILD_MESSAGE,
+      payload: {
+        version: APP_VERSION,
+        sourceCommit: APP_SOURCE_COMMIT
+      }
+    }, '*');
+  }, []);
+
   const defaultHighConfig = () => configWithPreset(normalizeGenerationConfig(createDefaultConfig(defaultSeed, { width: 2048, height: 1024 })), 'Earthlike');
   const storedWorkspace = useMemo(() => loadWorkspaceSettings(), []);
   const storedUi = useMemo(() => normalizeWorkspaceUiSettings(storedWorkspace.ui), [storedWorkspace.ui]);
