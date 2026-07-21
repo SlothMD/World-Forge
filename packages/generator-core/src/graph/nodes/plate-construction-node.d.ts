@@ -11,6 +11,17 @@ export type TopologyPlate = Plate & {
     age: number;
     density: number;
 };
+export type PlateBoundaryWarpMode = 'coherent' | 'none' | 'legacy-hash';
+export type PlateCohesionDiagnostics = {
+    boundaryCellShare: number;
+    boundaryEdgeCount: number;
+    connectedComponentCount: number;
+    singletonCellShare: number;
+    sub16CellShare: number;
+    minimumLargestComponentShare: number;
+    meanLargestComponentShare: number;
+    meridionalBoundaryTangentShare: number;
+};
 export type PlateConstructionInput = {
     requestedPlateCount: number;
     /**
@@ -22,8 +33,10 @@ export type PlateConstructionInput = {
 export type PlateConstructionOutput = {
     plates: TopologyPlate[];
     plateLayer: Uint16Array;
+    cohesion: PlateCohesionDiagnostics;
 };
 export declare const plateConstructionNode: GenerationNode<PlateConstructionInput, PlateConstructionOutput>;
 export declare function createTopologyPlates(topology: CubedSphereTopology, requestedPlateCount: number, rng: SeededRandom, primordial: PrimordialTerrainOutput): TopologyPlate[];
-export declare function assignTopologyPlateLayer(topology: CubedSphereTopology, plates: readonly TopologyPlate[]): Uint16Array;
+export declare function assignTopologyPlateLayer(topology: CubedSphereTopology, plates: readonly TopologyPlate[], warpMode?: PlateBoundaryWarpMode): Uint16Array;
+export declare function measurePlateCohesion(topology: CubedSphereTopology, plateLayer: Uint16Array, plateCount: number): PlateCohesionDiagnostics;
 //# sourceMappingURL=plate-construction-node.d.ts.map
